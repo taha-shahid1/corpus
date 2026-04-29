@@ -24,6 +24,12 @@ from corpus.loaders.web import WebLoader
 
 logger = logging.getLogger(__name__)
 
+class _HybridLanceDB(LanceDB):
+    """LanceDB vectorstore that uses hybrid search (vector + BM25) by default."""
+
+    def similarity_search(self, query: str, k: int = 4, **kwargs):
+        kwargs.setdefault("query_type", "hybrid")
+        return super().similarity_search(query, k=k, **kwargs)
 
 class _SemanticTextSplitter(RecursiveCharacterTextSplitter):
     """Wraps SemanticChunker as a TextSplitter.
@@ -49,7 +55,7 @@ def _build_embeddings() -> HuggingFaceEmbeddings:
 
 
 def _build_retriever(embeddings: HuggingFaceEmbeddings) -> ParentDocumentRetriever:
-    vectorstore = LanceDB(
+    vectorstore = _HybridLanceDB(
         connection=lancedb.connect(LANCEDB_URI),
         embedding=embeddings,
         table_name=LANCEDB_TABLE,
@@ -85,6 +91,13 @@ def ingest(loader: Loader) -> ParentDocumentRetriever:
     retriever = _build_retriever(embeddings)
 
     retriever.add_documents(documents)
+    # Rebuild FTS index so new documents are searchable by keyword
+    db = lancedb.connect(LANCEDB_URI)
+    try:
+        db.open_table(LANCEDB_TABLE).create_fts_index("text", replace=True)
+        logger.info("FTS index rebuilt")
+    except Exception as e:
+        logger.warning("FTS index creation failed: %s", e)
     logger.info("Ingestion complete")
 
     return retriever

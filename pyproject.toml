@@ -15,6 +15,7 @@ dependencies = [
     "torch>=2.0",
     "typer>=0.12",
     "rich>=13.0",
+    "unstructured[html,pdf]>=0.16",
 ]
 
 [build-system]
