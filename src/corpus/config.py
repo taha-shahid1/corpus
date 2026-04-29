@@ -13,3 +13,5 @@ CHILD_CHUNK_SIZE = 200
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 RERANKER_DEVICE = "mps"
 RERANKER_TOP_K = 5
+
+DB_PATH = str(Path("~/.corpus/corpus.db").expanduser())

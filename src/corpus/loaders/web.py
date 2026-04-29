@@ -11,6 +11,7 @@ _MIN_GROUPS = 3
 class WebLoader:
     def __init__(self, url: str) -> None:
         self.url = url
+        self.source = url
 
     def load(self) -> list[Document]:
         elements = partition_html(url=self.url)

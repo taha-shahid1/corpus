@@ -8,10 +8,12 @@ from rich.live import Live
 from rich.panel import Panel
 from rich.rule import Rule
 from rich.spinner import Spinner  # noqa: F401 — used via Live
+from rich.table import Table
 from rich.text import Text
 
 from corpus.ingestion import get_retriever, ingest_url
 from corpus.reranker import rerank
+from corpus.storage import get_status
 
 app = typer.Typer(add_completion=False, help="Corpus knowledge base CLI.")
 console = Console()
@@ -32,6 +34,25 @@ def add(source: str = typer.Argument(..., help="URL to ingest.")) -> None:
             raise typer.Exit(1)
 
     console.print(f"[green]✓[/green] Ingested [cyan]{source}[/cyan]")
+
+
+@app.command()
+def status() -> None:
+    """Show all ingested sources."""
+    rows = get_status()
+    if not rows:
+        console.print("[dim]Nothing ingested yet.[/dim]")
+        return
+
+    table = Table(show_header=True, header_style="bold")
+    table.add_column("Source")
+    table.add_column("Docs", justify="right")
+    table.add_column("Ingested")
+
+    for row in rows:
+        table.add_row(row["source"], str(row["doc_count"]), row["ingested_at"])
+
+    console.print(table)
 
 
 @app.callback(invoke_without_command=True)

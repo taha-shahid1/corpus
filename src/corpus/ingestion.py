@@ -21,8 +21,10 @@ from corpus.config import (
 )
 from corpus.loaders.base import Loader
 from corpus.loaders.web import WebLoader
+from corpus.storage import is_ingested, mark_ingested
 
 logger = logging.getLogger(__name__)
+
 
 class _HybridLanceDB(LanceDB):
     """LanceDB vectorstore that uses hybrid search (vector + BM25) by default."""
@@ -30,6 +32,7 @@ class _HybridLanceDB(LanceDB):
     def similarity_search(self, query: str, k: int = 4, **kwargs):
         kwargs.setdefault("query_type", "hybrid")
         return super().similarity_search(query, k=k, **kwargs)
+
 
 class _SemanticTextSplitter(RecursiveCharacterTextSplitter):
     """Wraps SemanticChunker as a TextSplitter.
@@ -81,6 +84,10 @@ def ingest(loader: Loader) -> ParentDocumentRetriever:
 
     Raises ValueError if the loader produces no documents.
     """
+    if is_ingested(loader.source):
+        logger.info("%s already ingested, skipping", loader.source)
+        return get_retriever()
+
     documents = loader.load()
     if not documents:
         raise ValueError(f"{loader!r} returned no documents")
@@ -98,6 +105,8 @@ def ingest(loader: Loader) -> ParentDocumentRetriever:
         logger.info("FTS index rebuilt")
     except Exception as e:
         logger.warning("FTS index creation failed: %s", e)
+
+    mark_ingested(loader.source, len(documents))
     logger.info("Ingestion complete")
 
     return retriever
