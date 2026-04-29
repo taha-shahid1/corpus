@@ -14,6 +14,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from corpus.config import (
     CHILD_CHUNK_SIZE,
     DOCSTORE_PATH,
+    EMBEDDING_BATCH_SIZE,
     EMBEDDING_DEVICE,
     EMBEDDING_MODEL,
     LANCEDB_TABLE,
@@ -24,6 +25,8 @@ from corpus.loaders.web import WebLoader
 from corpus.storage import is_ingested, mark_ingested
 
 logger = logging.getLogger(__name__)
+
+_embeddings: HuggingFaceEmbeddings | None = None
 
 
 class _HybridLanceDB(LanceDB):
@@ -49,12 +52,15 @@ class _SemanticTextSplitter(RecursiveCharacterTextSplitter):
         return [doc.page_content for doc in self._chunker.create_documents([text])]
 
 
-def _build_embeddings() -> HuggingFaceEmbeddings:
-    return HuggingFaceEmbeddings(
-        model_name=EMBEDDING_MODEL,
-        model_kwargs={"device": EMBEDDING_DEVICE, "trust_remote_code": True},
-        encode_kwargs={"normalize_embeddings": True},
-    )
+def _get_embeddings() -> HuggingFaceEmbeddings:
+    global _embeddings
+    if _embeddings is None:
+        _embeddings = HuggingFaceEmbeddings(
+            model_name=EMBEDDING_MODEL,
+            model_kwargs={"device": EMBEDDING_DEVICE, "trust_remote_code": True},
+            encode_kwargs={"normalize_embeddings": True, "batch_size": EMBEDDING_BATCH_SIZE},
+        )
+    return _embeddings
 
 
 def _build_retriever(embeddings: HuggingFaceEmbeddings) -> ParentDocumentRetriever:
@@ -94,7 +100,7 @@ def ingest(loader: Loader) -> ParentDocumentRetriever:
 
     logger.info("Loaded %d document(s)", len(documents))
 
-    embeddings = _build_embeddings()
+    embeddings = _get_embeddings()
     retriever = _build_retriever(embeddings)
 
     retriever.add_documents(documents)
@@ -114,7 +120,7 @@ def ingest(loader: Loader) -> ParentDocumentRetriever:
 
 def get_retriever() -> ParentDocumentRetriever:
     """Return a retriever connected to the existing stores, for querying."""
-    return _build_retriever(_build_embeddings())
+    return _build_retriever(_get_embeddings())
 
 
 def ingest_url(url: str) -> ParentDocumentRetriever:

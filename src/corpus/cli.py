@@ -13,7 +13,7 @@ from rich.text import Text
 
 from corpus.ingestion import get_retriever, ingest_url
 from corpus.reranker import rerank
-from corpus.storage import get_status
+from corpus.storage import get_status, is_ingested
 
 app = typer.Typer(add_completion=False, help="Corpus knowledge base CLI.")
 console = Console()
@@ -22,6 +22,10 @@ console = Console()
 @app.command()
 def add(source: str = typer.Argument(..., help="URL to ingest.")) -> None:
     """Ingest a source into the knowledge base."""
+    if is_ingested(source):
+        console.print(f"[yellow]Already ingested:[/yellow] [cyan]{source}[/cyan]")
+        return
+
     with Live(
         Spinner("dots", text=f"Ingesting [cyan]{source}[/cyan]…"),
         console=console,

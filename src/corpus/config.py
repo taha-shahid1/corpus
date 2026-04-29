@@ -9,6 +9,7 @@ LANCEDB_TABLE = "corpus_children"
 DOCSTORE_PATH = Path("~/.corpus/parents").expanduser()
 
 CHILD_CHUNK_SIZE = 200
+EMBEDDING_BATCH_SIZE = 32
 
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 RERANKER_DEVICE = "mps"
