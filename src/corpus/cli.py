@@ -11,8 +11,8 @@ from rich.spinner import Spinner  # noqa: F401 — used via Live
 from rich.table import Table
 from rich.text import Text
 
-from corpus.ingestion import get_retriever, ingest_url
-from corpus.reranker import rerank
+from corpus.ingestion import ingest_url
+from corpus.retrieval import build_retriever, rerank
 from corpus.storage import get_status, is_ingested
 
 app = typer.Typer(add_completion=False, help="Corpus knowledge base CLI.")
@@ -66,7 +66,7 @@ def repl(ctx: typer.Context) -> None:
         return
 
     with Live(Spinner("dots", text="Loading retriever…"), console=console, transient=True):
-        retriever = get_retriever()
+        retriever = build_retriever()
 
     console.print(Rule("[bold]Corpus[/bold]"))
     console.print(

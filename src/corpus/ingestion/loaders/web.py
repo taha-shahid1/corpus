@@ -1,7 +1,7 @@
 from langchain_core.documents import Document
 from unstructured.partition.html import partition_html
 
-from corpus.loaders.base import Loader
+from corpus.ingestion.loaders.base import Loader
 
 _HEADER_CATEGORIES = {"Title", "Header"}
 _MIN_GROUP_CHARS = 200

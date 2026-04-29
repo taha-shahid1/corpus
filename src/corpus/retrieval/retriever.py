@@ -20,9 +20,6 @@ from corpus.config import (
     LANCEDB_TABLE,
     LANCEDB_URI,
 )
-from corpus.loaders.base import Loader
-from corpus.loaders.web import WebLoader
-from corpus.storage import is_ingested, mark_ingested
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +60,9 @@ def _get_embeddings() -> HuggingFaceEmbeddings:
     return _embeddings
 
 
-def _build_retriever(embeddings: HuggingFaceEmbeddings) -> ParentDocumentRetriever:
+def build_retriever() -> ParentDocumentRetriever:
+    embeddings = _get_embeddings()
+
     vectorstore = _HybridLanceDB(
         connection=lancedb.connect(LANCEDB_URI),
         embedding=embeddings,
@@ -83,45 +82,3 @@ def _build_retriever(embeddings: HuggingFaceEmbeddings) -> ParentDocumentRetriev
         child_splitter=RecursiveCharacterTextSplitter(chunk_size=CHILD_CHUNK_SIZE),
         parent_splitter=parent_splitter,
     )
-
-
-def ingest(loader: Loader) -> ParentDocumentRetriever:
-    """Ingest documents from loader into the Corpus stores.
-
-    Raises ValueError if the loader produces no documents.
-    """
-    if is_ingested(loader.source):
-        logger.info("%s already ingested, skipping", loader.source)
-        return get_retriever()
-
-    documents = loader.load()
-    if not documents:
-        raise ValueError(f"{loader!r} returned no documents")
-
-    logger.info("Loaded %d document(s)", len(documents))
-
-    embeddings = _get_embeddings()
-    retriever = _build_retriever(embeddings)
-
-    retriever.add_documents(documents)
-    # Rebuild FTS index so new documents are searchable by keyword
-    db = lancedb.connect(LANCEDB_URI)
-    try:
-        db.open_table(LANCEDB_TABLE).create_fts_index("text", replace=True)
-        logger.info("FTS index rebuilt")
-    except Exception as e:
-        logger.warning("FTS index creation failed: %s", e)
-
-    mark_ingested(loader.source, len(documents))
-    logger.info("Ingestion complete")
-
-    return retriever
-
-
-def get_retriever() -> ParentDocumentRetriever:
-    """Return a retriever connected to the existing stores, for querying."""
-    return _build_retriever(_get_embeddings())
-
-
-def ingest_url(url: str) -> ParentDocumentRetriever:
-    return ingest(WebLoader(url))
