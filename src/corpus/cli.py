@@ -11,6 +11,7 @@ from rich.spinner import Spinner  # noqa: F401 — used via Live
 from rich.text import Text
 
 from corpus.ingestion import get_retriever, ingest_url
+from corpus.reranker import rerank
 
 app = typer.Typer(add_completion=False, help="Corpus knowledge base CLI.")
 console = Console()
@@ -58,7 +59,7 @@ def repl(ctx: typer.Context) -> None:
             continue
 
         with Live(Spinner("dots", text="Searching…"), console=console, transient=True):
-            results = retriever.invoke(query)
+            results = rerank(query, retriever.invoke(query))
 
         if not results:
             console.print("[dim]No results.[/dim]\n")
