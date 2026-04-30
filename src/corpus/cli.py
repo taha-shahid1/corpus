@@ -38,30 +38,37 @@ from prompt_toolkit.styles import Style as PTStyle
 from rich.console import Console, Group as RichGroup
 from rich.live import Live
 from rich.markdown import Markdown
-from rich.panel import Panel
-from rich.rule import Rule
 from rich.spinner import Spinner
 from rich.table import Table
 from rich.text import Text
+
+# Pre-rendered with oh-my-logo
+_LOGO = """\
+  ██████╗  ██████╗  ██████╗  ██████╗  ██╗   ██╗ ███████╗
+ ██╔════╝ ██╔═══██╗ ██╔══██╗ ██╔══██╗ ██║   ██║ ██╔════╝
+ ██║      ██║   ██║ ██████╔╝ ██████╔╝ ██║   ██║ ███████╗
+ ██║      ██║   ██║ ██╔══██╗ ██╔═══╝  ██║   ██║ ╚════██║
+ ╚██████╗ ╚██████╔╝ ██║  ██║ ██║      ╚██████╔╝ ███████║
+  ╚═════╝  ╚═════╝  ╚═╝  ╚═╝ ╚═╝       ╚═════╝  ╚══════╝"""
 
 from corpus.agent.graph import build_graph
 from corpus.ingestion import ingest_url
 from corpus.retrieval.reranker import warmup as warmup_reranker
 from corpus.storage import get_status, is_ingested
 
-app = typer.Typer(add_completion=False, help="Corpus knowledge base CLI.")
+app = typer.Typer(add_completion=False, help="Corpus — personal knowledge base.")
 console = Console()
 
-_PROMPT_STYLE = PTStyle.from_dict({"prompt": "bold ansicyan"})
+_PROMPT_STYLE = PTStyle.from_dict({"prompt": "bold"})
 
 _NODE_LABELS: dict[str, str] = {
-    "route": "Route",
-    "plan": "Plan",
-    "retrieve": "Retrieve",
-    "grade": "Grade",
-    "rewrite": "Rewrite",
-    "generate": "Generate",
-    "respond": "Respond",
+    "route": "route",
+    "plan": "plan",
+    "retrieve": "retrieve",
+    "grade": "grade",
+    "rewrite": "rewrite",
+    "generate": "generate",
+    "respond": "respond",
 }
 
 # Nodes that stream the final answer token-by-token
@@ -83,7 +90,7 @@ def _node_detail(node_name: str, node_data: dict, retrieve_count: int) -> str:
         return f"{n}/{retrieve_count} relevant"
     if node_name == "rewrite":
         q = node_data.get("query", "")
-        return f'"{q[:42]}…"' if len(q) > 42 else f'"{q}"'
+        return f'"{q[:48]}…"' if len(q) > 48 else f'"{q}"'
     return ""
 
 
@@ -96,28 +103,23 @@ def _build_query_display(
     parts: list = []
 
     for node_name, detail in steps_done:
-        label = _NODE_LABELS.get(node_name, node_name.title())
+        label = _NODE_LABELS.get(node_name, node_name)
         row = Text()
-        row.append("  ✓  ", style="bold green")
-        row.append(f"{label:<10}", style="green dim")
+        row.append("  ✓  ", style="dim green")
+        row.append(f"{label:<12}", style="dim")
         if detail:
-            row.append(f"  {detail}", style="dim")
+            row.append(detail, style="dim")
         parts.append(row)
 
     if active_node:
-        label = _NODE_LABELS.get(active_node, active_node.title())
-        parts.append(Spinner("dots", text=f"  [cyan bold]{label}[/cyan bold]"))
+        label = _NODE_LABELS.get(active_node, active_node)
+        parts.append(Spinner("dots", text=f"  [dim]{label}[/dim]"))
 
     if answer_chunks:
         cursor = " ▋" if generating else ""
         parts.append(Text(""))
-        parts.append(
-            Panel(
-                Markdown("".join(answer_chunks) + cursor),
-                border_style="cyan",
-                padding=(1, 2),
-            )
-        )
+        parts.append(Markdown("".join(answer_chunks) + cursor))
+        parts.append(Text(""))
 
     return RichGroup(*parts)
 
@@ -126,21 +128,21 @@ def _build_query_display(
 def add(source: str = typer.Argument(..., help="URL to ingest.")) -> None:
     """Ingest a source into the knowledge base."""
     if is_ingested(source):
-        console.print(f"[yellow]Already ingested:[/yellow] [cyan]{source}[/cyan]")
+        console.print(f"[dim]already ingested[/dim]  {source}")
         return
 
     with Live(
-        Spinner("dots", text=f"Ingesting [cyan]{source}[/cyan]…"),
+        Spinner("dots", text=f"  [dim]ingesting {source}[/dim]"),
         console=console,
         transient=True,
     ):
         try:
             ingest_url(source)
         except ValueError as exc:
-            console.print(f"[red]Error:[/red] {exc}")
+            console.print(f"[red]error:[/red] {exc}")
             raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green] Ingested [cyan]{source}[/cyan]")
+    console.print(f"[green]✓[/green]  {source}")
 
 
 @app.command()
@@ -148,22 +150,43 @@ def status() -> None:
     """Show all ingested sources."""
     rows = get_status()
     if not rows:
-        console.print("[dim]Nothing ingested yet.[/dim]")
+        console.print("[dim]nothing ingested yet[/dim]")
         return
 
-    table = Table(show_header=True, header_style="bold")
-    table.add_column("Source")
-    table.add_column("Docs", justify="right")
-    table.add_column("Ingested")
+    table = Table(show_header=True, header_style="dim", box=None, padding=(0, 2, 0, 0))
+    table.add_column("source")
+    table.add_column("docs", justify="right")
+    table.add_column("ingested")
 
     for row in rows:
         table.add_row(row["source"], str(row["doc_count"]), row["ingested_at"])
 
+    console.print()
     console.print(table)
+    console.print()
+
+
+def _print_splash() -> None:
+    """Render the corpus wordmark with a top-to-bottom violet gradient."""
+    lines = _LOGO.split("\n")
+    # Gradient: deep forest (#065f46) → bright mint (#34d399)
+    n = max(len(lines) - 1, 1)
+    console.print()
+    for i, line in enumerate(lines):
+        t = i / n
+        r = round(0x06 + t * (0x34 - 0x06))
+        g = round(0x5F + t * (0xD3 - 0x5F))
+        b = round(0x46 + t * (0x99 - 0x46))
+        console.print(line, style=f"bold #{r:02x}{g:02x}{b:02x}")
+
+    console.print()
+    console.print("  [dim]personal knowledge base[/dim]")
+    console.print("  [dim]ask anything  ·  ↑↓ history  ·  ctrl+c to exit[/dim]")
+    console.print()
 
 
 def _render_sources(docs: list) -> None:
-    """Print a deduplicated numbered sources list below the answer."""
+    """Print a deduplicated numbered source list below the answer."""
     seen: dict[str, int] = {}
     for doc in docs:
         src = doc.metadata.get("source", "")
@@ -173,9 +196,11 @@ def _render_sources(docs: list) -> None:
     if not seen:
         return
 
-    console.print("  [bold dim]Sources[/bold dim]")
     for src, n in seen.items():
-        console.print(f"  [dim][{n}][/dim] [cyan]{src}[/cyan]")
+        row = Text()
+        row.append(f"  {n}  ", style="dim")
+        row.append(src, style="dim")
+        console.print(row)
     console.print()
 
 
@@ -186,16 +211,14 @@ def repl(ctx: typer.Context) -> None:
         return
 
     with Live(
-        Spinner("dots", text="Loading agent…"),
+        Spinner("dots", text="  [dim]loading…[/dim]"),
         console=console,
         transient=True,
     ):
         graph = build_graph()
         warmup_reranker()
 
-    console.print()
-    console.print(Rule(" [bold cyan]Corpus[/bold cyan] ", style="cyan"))
-    console.print("  [dim]Ask anything · [bold]↑↓[/bold] history · Ctrl+C to exit[/dim]\n")
+    _print_splash()
 
     session: PromptSession = PromptSession(history=InMemoryHistory())
 
@@ -203,7 +226,6 @@ def repl(ctx: typer.Context) -> None:
         try:
             query = session.prompt("◆ ", style=_PROMPT_STYLE).strip()
         except (KeyboardInterrupt, EOFError):
-            console.print("\n[dim]Bye.[/dim]")
             sys.exit(0)
 
         if not query:
@@ -212,7 +234,7 @@ def repl(ctx: typer.Context) -> None:
         console.print()
 
         steps_done: list[tuple[str, str]] = []
-        active_node: str | None = "plan"
+        active_node: str | None = "route"
         answer_chunks: list[str] = []
         final_docs: list = []
         retrieve_count = 0
@@ -244,7 +266,7 @@ def repl(ctx: typer.Context) -> None:
                         detail = _node_detail(node_name, node_data, retrieve_count)
                         steps_done.append((node_name, detail))
 
-                        # infer the next active node from graph structure
+                        # infer the next active node from the graph structure
                         if node_name == "route":
                             active_node = (
                                 "plan"
@@ -256,7 +278,7 @@ def repl(ctx: typer.Context) -> None:
                         elif node_name == "retrieve":
                             active_node = "grade"
                         elif node_name == "grade":
-                            # conditional edge — resolved by next event
+                            # conditional edge — resolved by the next event
                             active_node = None
                         elif node_name == "rewrite":
                             active_node = "plan"
@@ -267,8 +289,8 @@ def repl(ctx: typer.Context) -> None:
                         chunk, meta = data
                         # Only accumulate AIMessageChunk tokens from answer-producing nodes.
                         # LangGraph also emits full HumanMessage/AIMessage objects when nodes
-                        # write to the messages state key — filtering them out prevents the
-                        # duplicated-answer bug ("…yet [1].heyHi. The provided…").
+                        # write to the messages state key — filtering them prevents the
+                        # duplicated-answer bug.
                         if (
                             meta.get("langgraph_node") in _STREAMING_NODES
                             and isinstance(chunk, AIMessageChunk)
@@ -296,15 +318,14 @@ def repl(ctx: typer.Context) -> None:
                         )
                     )
 
-                # Final clean render — drop cursor and active spinner
                 live.update(_build_query_display(steps_done, None, answer_chunks, False))
 
         except Exception as exc:
-            console.print(f"[red]Error:[/red] {exc}\n")
+            console.print(f"[red]error:[/red] {exc}\n")
             continue
 
         if not answer_chunks:
-            console.print("[dim]No answer produced.[/dim]\n")
+            console.print("[dim]no answer produced[/dim]\n")
             continue
 
         _render_sources(final_docs)
