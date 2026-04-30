@@ -4,13 +4,13 @@ import logging
 from typing import Annotated, Literal
 
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_core.runnables import Runnable
 from pydantic import BaseModel, Field
 
 from corpus.agent.llm import LLMProvider
 from corpus.agent.state import AgentState
-from corpus.config import AGENT_MAX_LOOPS
+from corpus.config import AGENT_MAX_LOOPS, HISTORY_MAX_TURNS
 from corpus.retrieval.reranker import rerank
 
 logger = logging.getLogger(__name__)
@@ -201,29 +201,33 @@ def generate_node(llm: LLMProvider):
     def _run(state: AgentState) -> dict:
         query = state.get("original_query") or state["query"]
         docs = state["docs"]
-        logger.debug("GENERATE: synthesising from %d docs", len(docs))
+        past: list[BaseMessage] = state.get("messages", [])[-HISTORY_MAX_TURNS * 2 :]
+        logger.debug("GENERATE: synthesising from %d docs, %d history msgs", len(docs), len(past))
 
         if docs:
             context = "\n\n---\n\n".join(
                 f"[{i + 1}] (source: {doc.metadata.get('source', f'doc_{i}')})\n{doc.page_content}"
                 for i, doc in enumerate(docs)
             )
-            prompt = (
-                "You are a helpful assistant. Answer the user's question using only the "
-                "provided context. Cite sources inline using [1], [2], etc. matching the "
-                "numbered context blocks. If the context lacks enough information, say so.\n\n"
+            user_content = (
+                "Answer the user's question using only the provided context. "
+                "Cite sources inline using [1], [2], etc. matching the numbered context blocks. "
+                "If the context lacks enough information, say so.\n\n"
                 f"Context:\n{context}\n\n"
                 f"Question: {query}"
             )
         else:
-            prompt = (
-                "You are a helpful assistant. The knowledge base contains no relevant documents "
-                "for this query. Tell the user you don't have relevant information on this topic "
+            user_content = (
+                "The knowledge base contains no relevant documents for this query. "
+                "Tell the user you don't have relevant information on this topic "
                 "and do NOT cite any sources or use bracket notation like [1].\n\n"
                 f"Question: {query}"
             )
 
-        result = llm.strong.invoke([HumanMessage(content=prompt)])
+        system = SystemMessage(
+            content="You are a helpful assistant that answers questions from a personal knowledge base."
+        )
+        result = llm.strong.invoke([system, *past, HumanMessage(content=user_content)])
 
         answer = _message_text(result)
         logger.debug("GENERATE complete (%d chars)", len(answer))
@@ -279,19 +283,16 @@ def respond_node(llm: LLMProvider):
 
     def _run(state: AgentState) -> dict:
         query = state["query"]
-        logger.debug("RESPOND: direct conversational reply")
+        past: list[BaseMessage] = state.get("messages", [])[-HISTORY_MAX_TURNS * 2 :]
+        logger.debug("RESPOND: direct conversational reply, %d history msgs", len(past))
 
-        result = llm.strong.invoke(
-            [
-                HumanMessage(
-                    content=(
-                        "You are a helpful assistant. Respond naturally to the user's message. "
-                        "Be concise and friendly. Do not mention a knowledge base.\n\n"
-                        f"Message: {query}"
-                    )
-                )
-            ]
+        system = SystemMessage(
+            content=(
+                "You are a helpful assistant. Respond naturally to the user's messages. "
+                "Be concise and friendly. Do not mention a knowledge base."
+            )
         )
+        result = llm.strong.invoke([system, *past, HumanMessage(content=query)])
 
         answer = _message_text(result)
         logger.debug("RESPOND complete (%d chars)", len(answer))

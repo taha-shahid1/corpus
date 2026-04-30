@@ -236,11 +236,12 @@ def repl(ctx: typer.Context) -> None:
 
     _suppress_hf_logging()
 
-    from langchain_core.messages import AIMessageChunk
+    from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import InMemoryHistory
 
     from corpus.agent.graph import build_graph
+    from corpus.config import HISTORY_MAX_TURNS
     from corpus.retrieval.reranker import warmup as warmup_reranker
 
     with Live(
@@ -257,6 +258,7 @@ def repl(ctx: typer.Context) -> None:
     _print_splash()
 
     session: PromptSession = PromptSession(history=InMemoryHistory())
+    history: list = []  # list[BaseMessage], last HISTORY_MAX_TURNS turns
 
     while True:
         try:
@@ -284,7 +286,7 @@ def repl(ctx: typer.Context) -> None:
                 vertical_overflow="visible",
             ) as live:
                 for mode, data in graph.stream(
-                    {"query": query, "loop_count": 0},
+                    {"query": query, "loop_count": 0, "messages": history},
                     stream_mode=["messages", "updates"],
                 ):
                     if mode == "updates":
@@ -366,6 +368,9 @@ def repl(ctx: typer.Context) -> None:
         if not answer_chunks:
             console.print("[dim]no answer produced[/dim]\n")
             continue
+
+        history.extend([HumanMessage(content=query), AIMessage(content="".join(answer_chunks))])
+        history = history[-(HISTORY_MAX_TURNS * 2):]
 
         source_count = _render_sources(final_docs)
         _render_timing(elapsed, source_count)
