@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import time
 import warnings
 
 # Suppress model-loading noise before any heavy imports land
@@ -187,22 +188,31 @@ def _print_splash() -> None:
     console.print()
 
 
-def _render_sources(docs: list) -> None:
-    """Print a deduplicated numbered source list below the answer."""
+def _render_sources(docs: list) -> int:
+    """Print a deduplicated numbered source list. Returns the unique source count."""
     seen: dict[str, int] = {}
     for doc in docs:
         src = doc.metadata.get("source", "")
         if src and src not in seen:
             seen[src] = len(seen) + 1
 
-    if not seen:
-        return
-
     for src, n in seen.items():
         row = Text()
         row.append(f"  {n}  ", style="dim")
         row.append(src, style="dim")
         console.print(row)
+
+    return len(seen)
+
+
+def _render_timing(elapsed: float, source_count: int) -> None:
+    """Print the subtle answered-in timing footer."""
+    parts = [f"answered in {elapsed:.1f}s"]
+    if source_count:
+        parts.append(f"{source_count} source{'s' if source_count != 1 else ''} consulted")
+    row = Text()
+    row.append("  " + " · ".join(parts), style="dim")
+    console.print(row)
     console.print()
 
 
@@ -264,6 +274,7 @@ def repl(ctx: typer.Context) -> None:
         answer_chunks: list[str] = []
         final_docs: list = []
         retrieve_count = 0
+        t0 = time.perf_counter()
 
         try:
             with Live(
@@ -350,8 +361,11 @@ def repl(ctx: typer.Context) -> None:
             console.print(f"[red]error:[/red] {exc}\n")
             continue
 
+        elapsed = time.perf_counter() - t0
+
         if not answer_chunks:
             console.print("[dim]no answer produced[/dim]\n")
             continue
 
-        _render_sources(final_docs)
+        source_count = _render_sources(final_docs)
+        _render_timing(elapsed, source_count)
