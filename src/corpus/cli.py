@@ -8,6 +8,7 @@ import warnings
 # Suppress model-loading noise before any heavy imports land
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+os.environ.setdefault("HF_HUB_VERBOSITY", "error")
 
 # LangGraph serialises AIMessages that have a `.parsed` field (from with_structured_output),
 # which Pydantic can't round-trip cleanly. The warnings are harmless — silence them.
@@ -17,23 +18,24 @@ warnings.filterwarnings(
     category=UserWarning,
     module="pydantic",
 )
-
-try:
-    from transformers.utils import logging as _hf_logging
-
-    _hf_logging.set_verbosity_error()
-    _hf_logging.disable_progress_bar()
-except Exception:
-    pass
+warnings.filterwarnings(
+    "ignore",
+    message=".*HF_TOKEN.*",
+)
+warnings.filterwarnings(
+    "ignore",
+    message=".*unauthenticated.*",
+)
 
 logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
 logging.getLogger("transformers").setLevel(logging.ERROR)
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 
+# Heavy corpus internals (torch, sentence-transformers, langchain, lancedb, …) are
+# intentionally imported inside each command function so that lightweight subcommands
+# like `status` and `add` start instantly without loading the full ML stack
+
 import typer
-from langchain_core.messages import AIMessageChunk
-from prompt_toolkit import PromptSession
-from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.styles import Style as PTStyle
 from rich.console import Console, Group as RichGroup
 from rich.live import Live
@@ -50,11 +52,6 @@ _LOGO = """\
  ██║      ██║   ██║ ██╔══██╗ ██╔═══╝  ██║   ██║ ╚════██║
  ╚██████╗ ╚██████╔╝ ██║  ██║ ██║      ╚██████╔╝ ███████║
   ╚═════╝  ╚═════╝  ╚═╝  ╚═╝ ╚═╝       ╚═════╝  ╚══════╝"""
-
-from corpus.agent.graph import build_graph
-from corpus.ingestion import ingest_url
-from corpus.retrieval.reranker import warmup as warmup_reranker
-from corpus.storage import get_status, is_ingested
 
 app = typer.Typer(add_completion=False, help="Corpus — personal knowledge base.")
 console = Console()
@@ -127,6 +124,9 @@ def _build_query_display(
 @app.command()
 def add(source: str = typer.Argument(..., help="URL to ingest.")) -> None:
     """Ingest a source into the knowledge base."""
+    from corpus.ingestion import ingest_url
+    from corpus.storage import is_ingested
+
     if is_ingested(source):
         console.print(f"[dim]already ingested[/dim]  {source}")
         return
@@ -148,6 +148,8 @@ def add(source: str = typer.Argument(..., help="URL to ingest.")) -> None:
 @app.command()
 def status() -> None:
     """Show all ingested sources."""
+    from corpus.storage import get_status
+
     rows = get_status()
     if not rows:
         console.print("[dim]nothing ingested yet[/dim]")
@@ -204,19 +206,43 @@ def _render_sources(docs: list) -> None:
     console.print()
 
 
+def _suppress_hf_logging() -> None:
+    try:
+        from transformers.utils import logging as _hf_logging
+
+        _hf_logging.set_verbosity_error()
+        _hf_logging.disable_progress_bar()
+    except Exception:
+        pass
+
+
 @app.callback(invoke_without_command=True)
 def repl(ctx: typer.Context) -> None:
     """Open an interactive agent REPL."""
     if ctx.invoked_subcommand is not None:
         return
 
+    import concurrent.futures
+
+    _suppress_hf_logging()
+
+    from langchain_core.messages import AIMessageChunk
+    from prompt_toolkit import PromptSession
+    from prompt_toolkit.history import InMemoryHistory
+
+    from corpus.agent.graph import build_graph
+    from corpus.retrieval.reranker import warmup as warmup_reranker
+
     with Live(
         Spinner("dots", text="  [dim]loading…[/dim]"),
         console=console,
         transient=True,
     ):
-        graph = build_graph()
-        warmup_reranker()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            graph_future = pool.submit(build_graph)
+            warmup_future = pool.submit(warmup_reranker)
+            graph = graph_future.result()
+            warmup_future.result()
 
     _print_splash()
 

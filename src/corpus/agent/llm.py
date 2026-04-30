@@ -4,11 +4,7 @@ import os
 from collections.abc import Callable
 from typing import Protocol
 
-from langchain_anthropic import ChatAnthropic
 from langchain_core.language_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_ollama import ChatOllama
-from langchain_openai import ChatOpenAI
 
 from corpus.config import (
     ANTHROPIC_FAST_MODEL,
@@ -55,6 +51,8 @@ class OpenAIProvider(_ModelPairProvider):
     """Requires OPENAI_API_KEY in env."""
 
     def __init__(self, temperature: float = 0.0) -> None:
+        from langchain_openai import ChatOpenAI
+
         super().__init__(
             fast=ChatOpenAI(model=OPENAI_FAST_MODEL, temperature=temperature),
             strong=ChatOpenAI(model=OPENAI_STRONG_MODEL, temperature=temperature),
@@ -65,6 +63,8 @@ class AnthropicProvider(_ModelPairProvider):
     """Requires ANTHROPIC_API_KEY in env."""
 
     def __init__(self, temperature: float = 0.0) -> None:
+        from langchain_anthropic import ChatAnthropic
+
         super().__init__(
             fast=ChatAnthropic(model=ANTHROPIC_FAST_MODEL, temperature=temperature),
             strong=ChatAnthropic(model=ANTHROPIC_STRONG_MODEL, temperature=temperature),
@@ -75,6 +75,8 @@ class GeminiProvider(_ModelPairProvider):
     """Requires GOOGLE_API_KEY in env."""
 
     def __init__(self, temperature: float = 0.0) -> None:
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
         super().__init__(
             fast=ChatGoogleGenerativeAI(model=GEMINI_FAST_MODEL, temperature=temperature),
             strong=ChatGoogleGenerativeAI(model=GEMINI_STRONG_MODEL, temperature=temperature),
@@ -85,6 +87,8 @@ class OllamaProvider(_ModelPairProvider):
     """Local Ollama. No key required."""
 
     def __init__(self) -> None:
+        from langchain_ollama import ChatOllama
+
         super().__init__(
             fast=ChatOllama(model=OLLAMA_FAST_MODEL, base_url=OLLAMA_BASE_URL),
             strong=ChatOllama(model=OLLAMA_STRONG_MODEL, base_url=OLLAMA_BASE_URL),
