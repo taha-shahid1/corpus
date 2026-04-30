@@ -123,8 +123,8 @@ def _build_query_display(
 
 
 @app.command()
-def add(source: str = typer.Argument(..., help="URL or path to a PDF file to ingest.")) -> None:
-    """Ingest a URL or PDF file into the knowledge base."""
+def add(source: str = typer.Argument(..., help="URL, PDF, or Markdown file to ingest.")) -> None:
+    """Ingest a URL or local file (PDF, Markdown) into the knowledge base."""
     import pathlib
 
     from corpus.storage import is_ingested
@@ -136,12 +136,20 @@ def add(source: str = typer.Argument(..., help="URL or path to a PDF file to ing
         display_name = source
         ingest_fn = lambda: ingest_url(source)
     else:
-        from corpus.ingestion import ingest_pdf
-
         resolved = str(pathlib.Path(source).resolve())
         ingest_key = resolved
         display_name = pathlib.Path(resolved).name
-        ingest_fn = lambda: ingest_pdf(resolved)
+        ext = pathlib.Path(resolved).suffix.lower()
+
+        if ext == ".pdf":
+            from corpus.ingestion import ingest_pdf
+            ingest_fn = lambda: ingest_pdf(resolved)
+        elif ext == ".md":
+            from corpus.ingestion import ingest_md
+            ingest_fn = lambda: ingest_md(resolved)
+        else:
+            console.print(f"[red]error:[/red] unsupported file type {ext!r}  (supported: .pdf, .md)")
+            raise typer.Exit(1)
 
     if is_ingested(ingest_key):
         console.print(f"[dim]already ingested[/dim]  {ingest_key}")

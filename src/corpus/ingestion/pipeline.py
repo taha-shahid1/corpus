@@ -6,6 +6,7 @@ import lancedb
 
 from corpus.config import LANCEDB_TABLE, LANCEDB_URI
 from corpus.ingestion.loaders.base import Loader
+from corpus.ingestion.loaders.md import MarkdownLoader
 from corpus.ingestion.loaders.pdf import PDFLoader
 from corpus.ingestion.loaders.web import WebLoader
 from corpus.retrieval.retriever import build_retriever
@@ -52,3 +53,7 @@ def ingest_url(url: str):
 
 def ingest_pdf(path: str):
     return ingest(PDFLoader(path))
+
+
+def ingest_md(path: str):
+    return ingest(MarkdownLoader(path))
