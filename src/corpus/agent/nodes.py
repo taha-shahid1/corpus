@@ -31,9 +31,15 @@ class PlanOutput(BaseModel):
 
 
 class GradeOutput(BaseModel):
-    relevant: bool = Field(
-        description="True if the document contains information useful for answering the query."
-    )
+    relevant_indices: Annotated[
+        list[int],
+        Field(
+            description=(
+                "Zero-based indices of documents that contain information useful for "
+                "answering the query. Return an empty list if none are relevant."
+            )
+        ),
+    ]
 
 
 def _message_text(message: BaseMessage) -> str:
@@ -117,26 +123,31 @@ def grade_node(llm: LLMProvider):
     def _run(state: AgentState) -> dict:
         query = state["query"]
         docs = state["docs"]
-        logger.debug("GRADE: evaluating %d docs", len(docs))
+        logger.debug("GRADE: evaluating %d docs in one batch call", len(docs))
 
-        relevant: list[Document] = []
-        for doc in docs:
-            result: GradeOutput = structured.invoke(
-                [
-                    HumanMessage(
-                        content=(
-                            "You are a relevance grader. "
-                            "Given a user query and a retrieved document, decide if the document "
-                            "is relevant to answering the query.\n\n"
-                            f"Query: {query}\n\n"
-                            f"Document:\n{doc.page_content}"
-                        )
+        if not docs:
+            return {"docs": []}
+
+        numbered = "\n\n".join(
+            f"[{i}] {doc.page_content[:600]}" for i, doc in enumerate(docs)
+        )
+        result: GradeOutput = structured.invoke(
+            [
+                HumanMessage(
+                    content=(
+                        "You are a relevance grader. "
+                        "Given a user query and a numbered list of retrieved documents, "
+                        "return the zero-based indices of every document that contains "
+                        "information useful for answering the query. "
+                        "Return an empty list if none are relevant.\n\n"
+                        f"Query: {query}\n\n"
+                        f"Documents:\n{numbered}"
                     )
-                ]
-            )
-            if result.relevant:
-                relevant.append(doc)
+                )
+            ]
+        )
 
+        relevant = [docs[i] for i in result.relevant_indices if 0 <= i < len(docs)]
         logger.debug("GRADE: %d/%d docs kept", len(relevant), len(docs))
         return {"docs": relevant}
 
@@ -181,27 +192,27 @@ def generate_node(llm: LLMProvider):
         docs = state["docs"]
         logger.debug("GENERATE: synthesising from %d docs", len(docs))
 
-        context_parts = []
-        for i, doc in enumerate(docs):
-            source = doc.metadata.get("source", f"doc_{i}")
-            context_parts.append(f"[{i + 1}] (source: {source})\n{doc.page_content}")
+        if docs:
+            context = "\n\n---\n\n".join(
+                f"[{i + 1}] (source: {doc.metadata.get('source', f'doc_{i}')})\n{doc.page_content}"
+                for i, doc in enumerate(docs)
+            )
+            prompt = (
+                "You are a helpful assistant. Answer the user's question using only the "
+                "provided context. Cite sources inline using [1], [2], etc. matching the "
+                "numbered context blocks. If the context lacks enough information, say so.\n\n"
+                f"Context:\n{context}\n\n"
+                f"Question: {query}"
+            )
+        else:
+            prompt = (
+                "You are a helpful assistant. The knowledge base contains no relevant documents "
+                "for this query. Tell the user you don't have relevant information on this topic "
+                "and do NOT cite any sources or use bracket notation like [1].\n\n"
+                f"Question: {query}"
+            )
 
-        context = "\n\n---\n\n".join(context_parts)
-
-        result = llm.strong.invoke(
-            [
-                HumanMessage(
-                    content=(
-                        "You are a helpful assistant. Answer the user's question using only the "
-                        "provided context. Cite sources inline using [1], [2], etc. matching the "
-                        "numbered context blocks. If the context lacks enough information, "
-                        "say so.\n\n"
-                        f"Context:\n{context}\n\n"
-                        f"Question: {query}"
-                    )
-                )
-            ]
-        )
+        result = llm.strong.invoke([HumanMessage(content=prompt)])
 
         answer = _message_text(result)
         logger.debug("GENERATE complete (%d chars)", len(answer))

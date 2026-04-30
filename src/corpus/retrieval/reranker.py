@@ -15,6 +15,11 @@ def _get_model() -> CrossEncoder:
     return _model
 
 
+def warmup() -> None:
+    """Pre-load the cross-encoder so the first query doesn't pay the cold-start cost."""
+    _get_model()
+
+
 def rerank(query: str, docs: list[Document], top_k: int = RERANKER_TOP_K) -> list[Document]:
     scores = _get_model().predict([(query, doc.page_content) for doc in docs])
     ranked = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
