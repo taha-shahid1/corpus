@@ -8,7 +8,6 @@ from langchain_classic.retrievers import ParentDocumentRetriever
 from langchain_classic.storage import LocalFileStore, create_kv_docstore
 from langchain_community.vectorstores import LanceDB
 from langchain_core.documents import Document
-from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
@@ -20,6 +19,8 @@ from corpus.config import (
     EMBEDDING_MODEL,
     LANCEDB_TABLE,
     LANCEDB_URI,
+    PARENT_CHUNK_OVERLAP,
+    PARENT_CHUNK_SIZE,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,21 +48,6 @@ class _HybridLanceDB(LanceDB):
         return self.results_to_docs(results, score=False)
 
 
-class _SemanticTextSplitter(RecursiveCharacterTextSplitter):
-    """Wraps SemanticChunker as a TextSplitter.
-
-    langchain_classic's ParentDocumentRetriever requires parent_splitter to be a
-    TextSplitter subclass, but SemanticChunker only extends BaseDocumentTransformer.
-    """
-
-    def __init__(self, chunker: SemanticChunker) -> None:
-        super().__init__(chunk_size=10_000_000)
-        self._chunker = chunker
-
-    def split_text(self, text: str) -> list[str]:
-        return [doc.page_content for doc in self._chunker.create_documents([text])]
-
-
 def _get_embeddings() -> HuggingFaceEmbeddings:
     global _embeddings
     if _embeddings is None:
@@ -85,13 +71,12 @@ def build_retriever() -> ParentDocumentRetriever:
     Path(DOCSTORE_PATH).mkdir(parents=True, exist_ok=True)
     docstore = create_kv_docstore(LocalFileStore(str(DOCSTORE_PATH)))
 
-    parent_splitter = _SemanticTextSplitter(
-        SemanticChunker(embeddings=embeddings, breakpoint_threshold_type="percentile")
-    )
-
     return ParentDocumentRetriever(
         vectorstore=vectorstore,
         docstore=docstore,
         child_splitter=RecursiveCharacterTextSplitter(chunk_size=CHILD_CHUNK_SIZE),
-        parent_splitter=parent_splitter,
+        parent_splitter=RecursiveCharacterTextSplitter(
+            chunk_size=PARENT_CHUNK_SIZE,
+            chunk_overlap=PARENT_CHUNK_OVERLAP,
+        ),
     )

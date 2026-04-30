@@ -15,7 +15,7 @@ _MIN_GROUPS = 3
 class PDFLoader:
     def __init__(self, path: str) -> None:
         self.path = path
-        # Absolute path keeps the storage key stable across cwd changes.
+        # Absolute path keeps the storage key stable across cwd changes
         self.source = str(Path(path).resolve()) if path else path
 
     def load(self) -> list[Document]:
@@ -29,6 +29,7 @@ class PDFLoader:
             filename=str(src),
             strategy="fast",
             include_page_breaks=True,
+            languages=["eng"],
         )
 
         if not elements:
