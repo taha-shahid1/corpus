@@ -16,6 +16,15 @@ from corpus.retrieval.reranker import rerank
 logger = logging.getLogger(__name__)
 
 
+def _format_source(doc) -> str:
+    src = doc.metadata.get("source", "unknown")
+    if src.startswith(("http://", "https://")):
+        return src
+    name = src.rsplit("/", 1)[-1] or src
+    page = doc.metadata.get("page")
+    return f"{name} p.{page}" if page is not None else name
+
+
 class RouteOutput(BaseModel):
     route: Literal["rag", "direct"] = Field(
         description=(
@@ -206,7 +215,7 @@ def generate_node(llm: LLMProvider):
 
         if docs:
             context = "\n\n---\n\n".join(
-                f"[{i + 1}] (source: {doc.metadata.get('source', f'doc_{i}')})\n{doc.page_content}"
+                f"[{i + 1}] (source: {_format_source(doc)})\n{doc.page_content}"
                 for i, doc in enumerate(docs)
             )
             user_content = (

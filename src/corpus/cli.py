@@ -123,27 +123,42 @@ def _build_query_display(
 
 
 @app.command()
-def add(source: str = typer.Argument(..., help="URL to ingest.")) -> None:
-    """Ingest a source into the knowledge base."""
-    from corpus.ingestion import ingest_url
+def add(source: str = typer.Argument(..., help="URL or path to a PDF file to ingest.")) -> None:
+    """Ingest a URL or PDF file into the knowledge base."""
+    import pathlib
+
     from corpus.storage import is_ingested
 
-    if is_ingested(source):
-        console.print(f"[dim]already ingested[/dim]  {source}")
+    if source.startswith(("http://", "https://")):
+        from corpus.ingestion import ingest_url
+
+        ingest_key = source
+        display_name = source
+        ingest_fn = lambda: ingest_url(source)
+    else:
+        from corpus.ingestion import ingest_pdf
+
+        resolved = str(pathlib.Path(source).resolve())
+        ingest_key = resolved
+        display_name = pathlib.Path(resolved).name
+        ingest_fn = lambda: ingest_pdf(resolved)
+
+    if is_ingested(ingest_key):
+        console.print(f"[dim]already ingested[/dim]  {ingest_key}")
         return
 
     with Live(
-        Spinner("dots", text=f"  [dim]ingesting {source}[/dim]"),
+        Spinner("dots", text=f"  [dim]ingesting {display_name}[/dim]"),
         console=console,
         transient=True,
     ):
         try:
-            ingest_url(source)
-        except ValueError as exc:
+            ingest_fn()
+        except (ValueError, FileNotFoundError) as exc:
             console.print(f"[red]error:[/red] {exc}")
             raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green]  {source}")
+    console.print(f"[green]✓[/green]  {ingest_key}")
 
 
 @app.command()
@@ -162,7 +177,7 @@ def status() -> None:
     table.add_column("ingested")
 
     for row in rows:
-        table.add_row(row["source"], str(row["doc_count"]), row["ingested_at"])
+        table.add_row(_source_display(row["source"]), str(row["doc_count"]), row["ingested_at"])
 
     console.print()
     console.print(table)
@@ -188,6 +203,14 @@ def _print_splash() -> None:
     console.print()
 
 
+def _source_display(src: str) -> str:
+    """Return a short display name: filename for local paths, full string for URLs."""
+    if src.startswith(("http://", "https://")):
+        return src
+    # Local file path — show just the filename for readability
+    return src.rsplit("/", 1)[-1] or src
+
+
 def _render_sources(docs: list) -> int:
     """Print a deduplicated numbered source list. Returns the unique source count."""
     seen: dict[str, int] = {}
@@ -197,9 +220,10 @@ def _render_sources(docs: list) -> int:
             seen[src] = len(seen) + 1
 
     for src, n in seen.items():
+        display = _source_display(src)
         row = Text()
         row.append(f"  {n}  ", style="dim")
-        row.append(src, style="dim")
+        row.append(display, style="dim")
         console.print(row)
 
     return len(seen)

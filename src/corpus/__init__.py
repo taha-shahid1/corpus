@@ -10,7 +10,11 @@ def __getattr__(name: str):
         from corpus.ingestion.pipeline import ingest_url
 
         return ingest_url
+    if name == "ingest_pdf":
+        from corpus.ingestion.pipeline import ingest_pdf
+
+        return ingest_pdf
     raise AttributeError(f"module 'corpus' has no attribute {name!r}")
 
 
-__all__ = ["ingest", "ingest_url"]
+__all__ = ["ingest", "ingest_pdf", "ingest_url"]
