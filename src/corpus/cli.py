@@ -11,8 +11,8 @@ from rich.spinner import Spinner  # noqa: F401 — used via Live
 from rich.table import Table
 from rich.text import Text
 
+from corpus.agent.graph import build_graph
 from corpus.ingestion import ingest_url
-from corpus.retrieval import build_retriever, rerank
 from corpus.storage import get_status, is_ingested
 
 app = typer.Typer(add_completion=False, help="Corpus knowledge base CLI.")
@@ -61,12 +61,12 @@ def status() -> None:
 
 @app.callback(invoke_without_command=True)
 def repl(ctx: typer.Context) -> None:
-    """Open an interactive query REPL against the knowledge base."""
+    """Open an interactive agent REPL."""
     if ctx.invoked_subcommand is not None:
         return
 
-    with Live(Spinner("dots", text="Loading retriever…"), console=console, transient=True):
-        retriever = build_retriever()
+    with Live(Spinner("dots", text="Loading agent…"), console=console, transient=True):
+        graph = build_graph()
 
     console.print(Rule("[bold]Corpus[/bold]"))
     console.print(
@@ -83,16 +83,13 @@ def repl(ctx: typer.Context) -> None:
         if not query:
             continue
 
-        with Live(Spinner("dots", text="Searching…"), console=console, transient=True):
-            results = rerank(query, retriever.invoke(query))
+        with Live(Spinner("dots", text="Thinking…"), console=console, transient=True):
+            result = graph.invoke({"query": query, "loop_count": 0})
 
-        if not results:
-            console.print("[dim]No results.[/dim]\n")
+        answer = result.get("answer", "")
+        if not answer:
+            console.print("[dim]No answer produced.[/dim]\n")
             continue
 
-        for i, doc in enumerate(results, start=1):
-            source = doc.metadata.get("source", "")
-            title = f"Result {i}" + (f"  [dim]{source}[/dim]" if source else "")
-            console.print(Panel(Text(doc.page_content), title=title, border_style="blue"))
-
+        console.print(Panel(Text(answer), title="Answer", border_style="green"))
         console.print()

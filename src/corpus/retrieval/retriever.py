@@ -7,6 +7,7 @@ import lancedb
 from langchain_classic.retrievers import ParentDocumentRetriever
 from langchain_classic.storage import LocalFileStore, create_kv_docstore
 from langchain_community.vectorstores import LanceDB
+from langchain_core.documents import Document
 from langchain_experimental.text_splitter import SemanticChunker
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -29,9 +30,21 @@ _embeddings: HuggingFaceEmbeddings | None = None
 class _HybridLanceDB(LanceDB):
     """LanceDB vectorstore that uses hybrid search (vector + BM25) by default."""
 
-    def similarity_search(self, query: str, k: int = 4, **kwargs):
-        kwargs.setdefault("query_type", "hybrid")
-        return super().similarity_search(query, k=k, **kwargs)
+    def similarity_search(self, query: str, k: int = 4, **kwargs) -> list[Document]:
+        if self._embedding is None:
+            raise ValueError("An embedding function is required.")
+        tbl = self.get_table()
+        if self._fts_index is None:
+            self._fts_index = tbl.create_fts_index(self._text_key, replace=True)
+        embedding = self._embedding.embed_query(query)
+        results = (
+            tbl.search(query_type="hybrid", vector_column_name=self._vector_key)
+            .vector(embedding)
+            .text(query)
+            .limit(k)
+            .to_arrow()
+        )
+        return self.results_to_docs(results, score=False)
 
 
 class _SemanticTextSplitter(RecursiveCharacterTextSplitter):
