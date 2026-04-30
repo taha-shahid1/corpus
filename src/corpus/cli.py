@@ -55,15 +55,23 @@ console = Console()
 _PROMPT_STYLE = PTStyle.from_dict({"prompt": "bold ansicyan"})
 
 _NODE_LABELS: dict[str, str] = {
+    "route": "Route",
     "plan": "Plan",
     "retrieve": "Retrieve",
     "grade": "Grade",
     "rewrite": "Rewrite",
     "generate": "Generate",
+    "respond": "Respond",
 }
+
+# Nodes that stream the final answer token-by-token
+_STREAMING_NODES: frozenset[str] = frozenset({"generate", "respond"})
 
 
 def _node_detail(node_name: str, node_data: dict, retrieve_count: int) -> str:
+    if node_name == "route":
+        rt = node_data.get("route_type", "")
+        return "knowledge lookup" if rt == "rag" else "conversational"
     if node_name == "plan":
         n = len(node_data.get("sub_questions", []))
         return f"{n} sub-question{'s' if n != 1 else ''}"
@@ -228,8 +236,8 @@ def repl(ctx: typer.Context) -> None:
                             retrieve_count = len(node_data.get("docs", []))
                         elif node_name == "grade":
                             final_docs = node_data.get("docs", [])
-                        elif node_name == "generate" and not answer_chunks:
-                            # fallback: non-streaming model
+                        elif node_name in _STREAMING_NODES and not answer_chunks:
+                            # fallback: non-streaming model emits full answer in updates
                             if ans := node_data.get("answer", ""):
                                 answer_chunks.append(ans)
 
@@ -237,7 +245,13 @@ def repl(ctx: typer.Context) -> None:
                         steps_done.append((node_name, detail))
 
                         # infer the next active node from graph structure
-                        if node_name == "plan":
+                        if node_name == "route":
+                            active_node = (
+                                "plan"
+                                if node_data.get("route_type") == "rag"
+                                else "respond"
+                            )
+                        elif node_name == "plan":
                             active_node = "retrieve"
                         elif node_name == "retrieve":
                             active_node = "grade"
@@ -246,21 +260,21 @@ def repl(ctx: typer.Context) -> None:
                             active_node = None
                         elif node_name == "rewrite":
                             active_node = "plan"
-                        elif node_name == "generate":
+                        elif node_name in _STREAMING_NODES:
                             active_node = None
 
                     elif mode == "messages":
                         chunk, meta = data
-                        # Guard: only accumulate streaming token chunks from the generate
-                        # node. Without this check, LangGraph also emits the HumanMessage
-                        # and full AIMessage that generate_node writes to state, producing
-                        # a duplicated answer like "…yet [1].heyHi. The provided…"
+                        # Only accumulate AIMessageChunk tokens from answer-producing nodes.
+                        # LangGraph also emits full HumanMessage/AIMessage objects when nodes
+                        # write to the messages state key — filtering them out prevents the
+                        # duplicated-answer bug ("…yet [1].heyHi. The provided…").
                         if (
-                            meta.get("langgraph_node") == "generate"
+                            meta.get("langgraph_node") in _STREAMING_NODES
                             and isinstance(chunk, AIMessageChunk)
                         ):
-                            if active_node != "generate":
-                                active_node = "generate"
+                            if active_node not in _STREAMING_NODES:
+                                active_node = meta["langgraph_node"]
                             content = chunk.content
                             if isinstance(content, str):
                                 answer_chunks.append(content)
@@ -278,11 +292,11 @@ def repl(ctx: typer.Context) -> None:
                             steps_done,
                             active_node,
                             answer_chunks,
-                            generating=(active_node == "generate"),
+                            generating=(active_node in _STREAMING_NODES),
                         )
                     )
 
-                # settle into final clean render (no cursor, no active spinner)
+                # Final clean render — drop cursor and active spinner
                 live.update(_build_query_display(steps_done, None, answer_chunks, False))
 
         except Exception as exc:

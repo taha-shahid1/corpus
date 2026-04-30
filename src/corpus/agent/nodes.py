@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated
+from typing import Annotated, Literal
 
 from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -14,6 +14,17 @@ from corpus.config import AGENT_MAX_LOOPS
 from corpus.retrieval.reranker import rerank
 
 logger = logging.getLogger(__name__)
+
+
+class RouteOutput(BaseModel):
+    route: Literal["rag", "direct"] = Field(
+        description=(
+            "rag: the query is a factual or knowledge question that may be answered by "
+            "searching a personal knowledge base (papers, articles, docs). "
+            "direct: the query is conversational, a greeting, a thank-you, an opinion "
+            "request, or clearly not a knowledge lookup."
+        )
+    )
 
 
 class PlanOutput(BaseModel):
@@ -232,3 +243,65 @@ def route_after_grade(state: AgentState) -> str:
     if has_docs or over_limit:
         return "generate"
     return "rewrite"
+
+
+def route_node(llm: LLMProvider):
+    structured = llm.fast.with_structured_output(RouteOutput)
+
+    def _run(state: AgentState) -> dict:
+        query = state["query"]
+        logger.debug("ROUTE: classifying query")
+
+        result: RouteOutput = structured.invoke(
+            [
+                HumanMessage(
+                    content=(
+                        "Classify the following user query as either 'rag' or 'direct'.\n\n"
+                        "rag — a factual or knowledge question that could be answered by "
+                        "searching a personal knowledge base of papers, articles, or docs.\n"
+                        "direct — conversational, a greeting, a thank-you, an opinion request, "
+                        "or anything clearly not a knowledge lookup.\n\n"
+                        "Output nothing except the JSON.\n\n"
+                        f"Query: {query}"
+                    )
+                )
+            ]
+        )
+
+        logger.debug("ROUTE decision: %s", result.route)
+        return {"route_type": result.route}
+
+    return _run
+
+
+def respond_node(llm: LLMProvider):
+    """Direct response for conversational queries — bypasses the full RAG pipeline."""
+
+    def _run(state: AgentState) -> dict:
+        query = state["query"]
+        logger.debug("RESPOND: direct conversational reply")
+
+        result = llm.strong.invoke(
+            [
+                HumanMessage(
+                    content=(
+                        "You are a helpful assistant. Respond naturally to the user's message. "
+                        "Be concise and friendly. Do not mention a knowledge base.\n\n"
+                        f"Message: {query}"
+                    )
+                )
+            ]
+        )
+
+        answer = _message_text(result)
+        logger.debug("RESPOND complete (%d chars)", len(answer))
+        return {
+            "answer": answer,
+            "messages": [HumanMessage(content=query), AIMessage(content=answer)],
+        }
+
+    return _run
+
+
+def route_after_classify(state: AgentState) -> str:
+    return "plan" if state.get("route_type") == "rag" else "respond"

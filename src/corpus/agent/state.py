@@ -12,6 +12,7 @@ class AgentState(TypedDict, total=False):
 
     query: str
     original_query: str
+    route_type: str  # "rag" | "direct"
     sub_questions: list[str]
     docs: list[Document]
     loop_count: int
