@@ -260,7 +260,14 @@ def watch(
             raise typer.Exit(1)
         resolved.append(p)
 
-    watcher = FolderWatcher(resolved, workers=workers, debounce=debounce)
+    print_lock = threading.Lock()
+
+    def on_status(message: str) -> None:
+        # Watcher callbacks can run on worker threads.
+        with print_lock:
+            console.print(f"[dim]watch:[/dim] {message}")
+
+    watcher = FolderWatcher(resolved, workers=workers, debounce=debounce, on_status=on_status)
 
     display = "  ".join(str(p) for p in resolved)
     console.print(f"[dim]watching[/dim]  {display}")

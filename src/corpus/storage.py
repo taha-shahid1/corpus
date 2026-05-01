@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -18,14 +19,23 @@ def _db() -> sqlite_utils.Database:
         Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
         db = sqlite_utils.Database(DB_PATH)
         if _TABLE not in db.table_names():
-            db[_TABLE].create(
-                {"source": str, "doc_count": int, "ingested_at": str, "file_hash": str},
-                pk="source",
-            )
+            try:
+                db[_TABLE].create(
+                    {"source": str, "doc_count": int, "ingested_at": str, "file_hash": str},
+                    pk="source",
+                )
+            except sqlite3.OperationalError as exc:
+                # Multiple watcher workers can race on first-run table creation.
+                if "already exists" not in str(exc):
+                    raise
         else:
             # Migrate: add file_hash column if it doesn't exist yet
             if "file_hash" not in db[_TABLE].columns_dict:
-                db[_TABLE].add_column("file_hash", str)
+                try:
+                    db[_TABLE].add_column("file_hash", str)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc):
+                        raise
         _db_local.conn = db
     return _db_local.conn
 
