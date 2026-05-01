@@ -237,7 +237,10 @@ def generate_node(llm: LLMProvider):
             )
 
         system = SystemMessage(
-            content="You are a helpful assistant that answers questions from a personal knowledge base."
+            content=(
+                "You are a helpful assistant that answers questions from a personal "
+                "knowledge base."
+            )
         )
         result = llm.strong.invoke([system, *past, HumanMessage(content=user_content)])
 

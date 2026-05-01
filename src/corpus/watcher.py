@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from collections.abc import Callable
 
 from watchdog.events import (
     FileCreatedEvent,

@@ -7,6 +7,16 @@ import threading
 import time
 import warnings
 
+import typer
+from prompt_toolkit.styles import Style as PTStyle
+from rich.console import Console
+from rich.console import Group as RichGroup
+from rich.live import Live
+from rich.markdown import Markdown
+from rich.spinner import Spinner
+from rich.table import Table
+from rich.text import Text
+
 # Suppress model-loading noise before any heavy imports land
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -39,15 +49,6 @@ logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
 # Heavy corpus internals (torch, sentence-transformers, langchain, lancedb, …) are
 # intentionally imported inside each command function so that lightweight subcommands
 # like `status` and `add` start instantly without loading the full ML stack
-
-import typer
-from prompt_toolkit.styles import Style as PTStyle
-from rich.console import Console, Group as RichGroup
-from rich.live import Live
-from rich.markdown import Markdown
-from rich.spinner import Spinner
-from rich.table import Table
-from rich.text import Text
 
 # Pre-rendered with oh-my-logo
 _LOGO = """\

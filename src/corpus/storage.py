@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import threading
 import sqlite3
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
