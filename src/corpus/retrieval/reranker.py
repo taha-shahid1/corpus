@@ -8,10 +8,21 @@ from corpus.config import RERANKER_DEVICE, RERANKER_MODEL, RERANKER_TOP_K
 _model: CrossEncoder | None = None
 
 
+def _detect_device() -> str:
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
+
+
 def _get_model() -> CrossEncoder:
     global _model
     if _model is None:
-        _model = CrossEncoder(RERANKER_MODEL, device=RERANKER_DEVICE)
+        device = RERANKER_DEVICE or _detect_device()
+        _model = CrossEncoder(RERANKER_MODEL, device=device)
     return _model
 
 

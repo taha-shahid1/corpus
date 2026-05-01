@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 
 import lancedb
@@ -25,45 +26,91 @@ from corpus.config import (
 
 logger = logging.getLogger(__name__)
 
+_init_lock = threading.Lock()
 _embeddings: HuggingFaceEmbeddings | None = None
+_lancedb_conn: lancedb.LanceDBConnection | None = None
+_retriever: ParentDocumentRetriever | None = None
+
+
+def _detect_device() -> str:
+    import torch
+
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 class _HybridLanceDB(LanceDB):
-    """LanceDB vectorstore that uses hybrid search (vector + BM25) by default."""
+    """LanceDB vectorstore that uses hybrid search (vector + BM25) by default.
+
+    Falls back to vector-only search if no FTS index exists yet (empty corpus).
+    The FTS index is managed externally by ``rebuild_fts_index()`` after ingestion.
+    """
 
     def similarity_search(self, query: str, k: int = 4, **kwargs) -> list[Document]:
         if self._embedding is None:
             raise ValueError("An embedding function is required.")
-        tbl = self.get_table()
-        if self._fts_index is None:
-            self._fts_index = tbl.create_fts_index(self._text_key, replace=True)
         embedding = self._embedding.embed_query(query)
-        results = (
-            tbl.search(query_type="hybrid", vector_column_name=self._vector_key)
-            .vector(embedding)
-            .text(query)
-            .limit(k)
-            .to_arrow()
-        )
+        tbl = self.get_table()
+        try:
+            results = (
+                tbl.search(query_type="hybrid", vector_column_name=self._vector_key)
+                .vector(embedding)
+                .text(query)
+                .limit(k)
+                .to_arrow()
+            )
+        except Exception:
+            logger.warning("Hybrid search unavailable, falling back to vector-only search")
+            results = tbl.search(embedding, vector_column_name=self._vector_key).limit(k).to_arrow()
         return self.results_to_docs(results, score=False)
 
 
 def _get_embeddings() -> HuggingFaceEmbeddings:
     global _embeddings
     if _embeddings is None:
-        _embeddings = HuggingFaceEmbeddings(
-            model_name=EMBEDDING_MODEL,
-            model_kwargs={"device": EMBEDDING_DEVICE, "trust_remote_code": True},
-            encode_kwargs={"normalize_embeddings": True, "batch_size": EMBEDDING_BATCH_SIZE},
-        )
+        with _init_lock:
+            if _embeddings is None:
+                device = EMBEDDING_DEVICE or _detect_device()
+                logger.info("Embedding device: %s", device)
+                _embeddings = HuggingFaceEmbeddings(
+                    model_name=EMBEDDING_MODEL,
+                    model_kwargs={"device": device, "trust_remote_code": True},
+                    encode_kwargs={
+                        "normalize_embeddings": True,
+                        "batch_size": EMBEDDING_BATCH_SIZE,
+                    },
+                )
     return _embeddings
 
 
-def build_retriever() -> ParentDocumentRetriever:
+def get_lancedb() -> lancedb.LanceDBConnection:
+    """Return the shared LanceDB connection, creating it on first call."""
+    global _lancedb_conn
+    if _lancedb_conn is None:
+        with _init_lock:
+            if _lancedb_conn is None:
+                _lancedb_conn = lancedb.connect(LANCEDB_URI)
+    return _lancedb_conn
+
+
+def get_retriever() -> ParentDocumentRetriever:
+    """Return the shared retriever, creating it on first call."""
+    global _retriever
+    if _retriever is None:
+        with _init_lock:
+            if _retriever is None:
+                _retriever = _build_retriever()
+    return _retriever
+
+
+def _build_retriever() -> ParentDocumentRetriever:
     embeddings = _get_embeddings()
 
     vectorstore = _HybridLanceDB(
-        connection=lancedb.connect(LANCEDB_URI),
+        connection=get_lancedb(),
         embedding=embeddings,
         table_name=LANCEDB_TABLE,
     )
@@ -80,3 +127,7 @@ def build_retriever() -> ParentDocumentRetriever:
             chunk_overlap=PARENT_CHUNK_OVERLAP,
         ),
     )
+
+
+# Backward-compatible alias — callers that held a reference to build_retriever still work.
+build_retriever = get_retriever

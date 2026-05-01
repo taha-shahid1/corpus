@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 
 EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
-EMBEDDING_DEVICE = "mps"
+# Override device with CORPUS_EMBEDDING_DEVICE; None triggers runtime auto-detection.
+EMBEDDING_DEVICE: str | None = os.getenv("CORPUS_EMBEDDING_DEVICE")
 
 LANCEDB_URI = str(Path("~/.corpus/lancedb").expanduser())
 LANCEDB_TABLE = "corpus_children"
@@ -15,7 +16,8 @@ CHILD_CHUNK_SIZE = 400
 EMBEDDING_BATCH_SIZE = 32
 
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
-RERANKER_DEVICE = "mps"
+# Override device with CORPUS_RERANKER_DEVICE; None triggers runtime auto-detection.
+RERANKER_DEVICE: str | None = os.getenv("CORPUS_RERANKER_DEVICE")
 RERANKER_TOP_K = 5
 
 AGENT_MAX_LOOPS = 2
@@ -35,3 +37,6 @@ OLLAMA_STRONG_MODEL = os.getenv("CORPUS_OLLAMA_STRONG_MODEL", "llama3.1:70b")
 OLLAMA_BASE_URL = os.getenv("CORPUS_OLLAMA_BASE_URL", "http://localhost:11434")
 
 DB_PATH = str(Path("~/.corpus/corpus.db").expanduser())
+
+WATCHER_DEBOUNCE_SECONDS = 1.0
+WATCHER_MAX_WORKERS = 4

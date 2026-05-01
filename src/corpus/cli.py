@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+import threading
 import time
 import warnings
 
@@ -143,12 +144,16 @@ def add(source: str = typer.Argument(..., help="URL, PDF, or Markdown file to in
 
         if ext == ".pdf":
             from corpus.ingestion import ingest_pdf
+
             ingest_fn = lambda: ingest_pdf(resolved)
         elif ext == ".md":
             from corpus.ingestion import ingest_md
+
             ingest_fn = lambda: ingest_md(resolved)
         else:
-            console.print(f"[red]error:[/red] unsupported file type {ext!r}  (supported: .pdf, .md)")
+            console.print(
+                f"[red]error:[/red] unsupported file type {ext!r}  (supported: .pdf, .md)"
+            )
             raise typer.Exit(1)
 
     if is_ingested(ingest_key):
@@ -190,6 +195,48 @@ def status() -> None:
     console.print()
     console.print(table)
     console.print()
+
+
+@app.command()
+def watch(
+    folders: list[str] = typer.Argument(..., help="Folders to watch for .md and .pdf files."),
+    workers: int = typer.Option(4, "--workers", "-w", help="Parallel ingestion workers."),
+    debounce: float = typer.Option(
+        1.0, "--debounce", help="Seconds to wait after a change before ingesting."
+    ),
+) -> None:
+    """Watch folders and automatically ingest new or updated documents."""
+    import signal
+    from pathlib import Path
+
+    from corpus.watcher import FolderWatcher
+
+    resolved = []
+    for f in folders:
+        p = Path(f).resolve()
+        if not p.is_dir():
+            console.print(f"[red]error:[/red] not a directory: {f!r}")
+            raise typer.Exit(1)
+        resolved.append(p)
+
+    watcher = FolderWatcher(resolved, workers=workers, debounce=debounce)
+
+    display = "  ".join(str(p) for p in resolved)
+    console.print(f"[dim]watching[/dim]  {display}")
+    console.print("[dim]ctrl+c to stop[/dim]")
+
+    stop_event = threading.Event()
+
+    def _handle_signal(*_) -> None:
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, _handle_signal)
+    signal.signal(signal.SIGTERM, _handle_signal)
+
+    watcher.start()
+    stop_event.wait()
+    watcher.stop()
+    console.print("\n[dim]stopped[/dim]")
 
 
 def _print_splash() -> None:
@@ -340,9 +387,7 @@ def repl(ctx: typer.Context) -> None:
                         # infer the next active node from the graph structure
                         if node_name == "route":
                             active_node = (
-                                "plan"
-                                if node_data.get("route_type") == "rag"
-                                else "respond"
+                                "plan" if node_data.get("route_type") == "rag" else "respond"
                             )
                         elif node_name == "plan":
                             active_node = "retrieve"
@@ -362,9 +407,8 @@ def repl(ctx: typer.Context) -> None:
                         # LangGraph also emits full HumanMessage/AIMessage objects when nodes
                         # write to the messages state key — filtering them prevents the
                         # duplicated-answer bug.
-                        if (
-                            meta.get("langgraph_node") in _STREAMING_NODES
-                            and isinstance(chunk, AIMessageChunk)
+                        if meta.get("langgraph_node") in _STREAMING_NODES and isinstance(
+                            chunk, AIMessageChunk
                         ):
                             if active_node not in _STREAMING_NODES:
                                 active_node = meta["langgraph_node"]
@@ -402,7 +446,7 @@ def repl(ctx: typer.Context) -> None:
             continue
 
         history.extend([HumanMessage(content=query), AIMessage(content="".join(answer_chunks))])
-        history = history[-(HISTORY_MAX_TURNS * 2):]
+        history = history[-(HISTORY_MAX_TURNS * 2) :]
 
         source_count = _render_sources(final_docs)
         _render_timing(elapsed, source_count)
