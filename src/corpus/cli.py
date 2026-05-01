@@ -11,6 +11,9 @@ import warnings
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("HF_HUB_VERBOSITY", "error")
+# Skip HF Hub network checks on every run — models are loaded from local cache.
+# To force a re-download, run with HF_HUB_OFFLINE=0.
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
 
 # LangGraph serialises AIMessages that have a `.parsed` field (from with_structured_output),
 # which Pydantic can't round-trip cleanly. The warnings are harmless — silence them.
@@ -155,28 +158,61 @@ def add(source: str = typer.Argument(..., help="URL, PDF, or Markdown file to in
     if ext is None:
         from corpus.ingestion import ingest_url
 
-        ingest_fn = lambda: ingest_url(source)
+        def _do_ingest(on_status=None):
+            return ingest_url(source, on_status=on_status)
     elif ext == ".pdf":
         from corpus.ingestion import ingest_pdf
 
-        ingest_fn = lambda: ingest_pdf(resolved)
+        def _do_ingest(on_status=None):
+            return ingest_pdf(resolved, on_status=on_status)
     else:
         from corpus.ingestion import ingest_md
 
-        ingest_fn = lambda: ingest_md(resolved)
+        def _do_ingest(on_status=None):
+            return ingest_md(resolved, on_status=on_status)
+
+    steps_done: list[str] = []
+    current: list[str] = [""]
+
+    def _make_display() -> RichGroup:
+        parts: list = []
+        for s in steps_done:
+            row = Text()
+            row.append("  ✓  ", style="dim green")
+            row.append(s, style="dim")
+            parts.append(row)
+        if current[0]:
+            parts.append(Spinner("dots", text=f"  [dim]{current[0]}[/dim]"))
+        return RichGroup(*parts)
 
     with Live(
-        Spinner("dots", text=f"  [dim]ingesting {display_name}[/dim]"),
+        _make_display(),
         console=console,
         transient=True,
-    ):
+        refresh_per_second=15,
+    ) as live:
+        def on_status(msg: str) -> None:
+            if current[0]:
+                steps_done.append(current[0])
+            current[0] = msg
+            live.update(_make_display())
+
         try:
-            ingest_fn()
+            _do_ingest(on_status=on_status)
         except (ValueError, FileNotFoundError) as exc:
             console.print(f"[red]error:[/red] {exc}")
             raise typer.Exit(1)
 
-    console.print(f"[green]✓[/green]  {ingest_key}")
+    if current[0]:
+        steps_done.append(current[0])
+
+    for s in steps_done:
+        row = Text()
+        row.append("  ✓  ", style="dim green")
+        row.append(s, style="dim")
+        console.print(row)
+
+    console.print(f"\n[green]✓[/green]  {display_name}")
 
 
 @app.command()

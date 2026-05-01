@@ -26,7 +26,7 @@ from corpus.config import (
 
 logger = logging.getLogger(__name__)
 
-_init_lock = threading.Lock()
+_init_lock = threading.RLock()
 _embeddings: HuggingFaceEmbeddings | None = None
 _lancedb_conn: lancedb.LanceDBConnection | None = None
 _retriever: ParentDocumentRetriever | None = None
@@ -77,7 +77,7 @@ def _get_embeddings() -> HuggingFaceEmbeddings:
                 logger.info("Embedding device: %s", device)
                 _embeddings = HuggingFaceEmbeddings(
                     model_name=EMBEDDING_MODEL,
-                    model_kwargs={"device": device, "trust_remote_code": True},
+                    model_kwargs={"device": device},
                     encode_kwargs={
                         "normalize_embeddings": True,
                         "batch_size": EMBEDDING_BATCH_SIZE,

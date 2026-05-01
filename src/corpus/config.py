@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 
-EMBEDDING_MODEL = "Qwen/Qwen3-Embedding-0.6B"
+EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 # Override device with CORPUS_EMBEDDING_DEVICE; None triggers runtime auto-detection.
 EMBEDDING_DEVICE: str | None = os.getenv("CORPUS_EMBEDDING_DEVICE")
 

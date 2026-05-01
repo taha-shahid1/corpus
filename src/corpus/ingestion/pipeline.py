@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Callable
 
 from corpus.config import LANCEDB_TABLE
 from corpus.ingestion.loaders.base import Loader
@@ -64,7 +65,12 @@ def rebuild_fts_index() -> None:
 
 
 def ingest(
-    loader: Loader, *, force: bool = False, file_hash: str | None = None, rebuild_index: bool = True
+    loader: Loader,
+    *,
+    force: bool = False,
+    file_hash: str | None = None,
+    rebuild_index: bool = True,
+    on_status: Callable[[str], None] | None = None,
 ):
     """Ingest documents from *loader* into the Corpus stores.
 
@@ -74,24 +80,34 @@ def ingest(
     Pass ``rebuild_index=False`` when ingesting many files in a batch; call
     ``rebuild_fts_index()`` once after the batch completes instead.
 
+    Pass ``on_status`` to receive step-by-step progress strings (used by the CLI).
+
     Raises ValueError if the loader produces no documents.
     """
     if not force and is_ingested(loader.source):
         logger.info("%s already ingested, skipping", loader.source)
         return get_retriever()
 
+    # Model load is the slowest cold-start step so do it first
+    if on_status:
+        on_status("loading model")
+    retriever = get_retriever()
+
+    if on_status:
+        on_status("parsing")
     documents = loader.load()
     if not documents:
         raise ValueError(f"{loader!r} returned no documents")
 
     logger.info("Loaded %d document(s)", len(documents))
 
-    # Retrieve the cached singleton outside the lock — it's a no-op after first call.
-    retriever = get_retriever()
-
+    if on_status:
+        on_status(f"embedding {len(documents)} doc(s)")
     with _write_lock:
         retriever.add_documents(documents)
         if rebuild_index:
+            if on_status:
+                on_status("indexing")
             rebuild_fts_index()
 
     mark_ingested(loader.source, len(documents), file_hash=file_hash)
@@ -100,19 +116,33 @@ def ingest(
     return retriever
 
 
-def ingest_url(url: str):
-    return ingest(WebLoader(url))
+def ingest_url(url: str, *, on_status: Callable[[str], None] | None = None):
+    return ingest(WebLoader(url), on_status=on_status)
 
 
 def ingest_pdf(
-    path: str, *, force: bool = False, file_hash: str | None = None, rebuild_index: bool = True
+    path: str,
+    *,
+    force: bool = False,
+    file_hash: str | None = None,
+    rebuild_index: bool = True,
+    on_status: Callable[[str], None] | None = None,
 ):
-    return ingest(PDFLoader(path), force=force, file_hash=file_hash, rebuild_index=rebuild_index)
+    return ingest(
+        PDFLoader(path), force=force, file_hash=file_hash, rebuild_index=rebuild_index,
+        on_status=on_status,
+    )
 
 
 def ingest_md(
-    path: str, *, force: bool = False, file_hash: str | None = None, rebuild_index: bool = True
+    path: str,
+    *,
+    force: bool = False,
+    file_hash: str | None = None,
+    rebuild_index: bool = True,
+    on_status: Callable[[str], None] | None = None,
 ):
     return ingest(
-        MarkdownLoader(path), force=force, file_hash=file_hash, rebuild_index=rebuild_index
+        MarkdownLoader(path), force=force, file_hash=file_hash, rebuild_index=rebuild_index,
+        on_status=on_status,
     )
