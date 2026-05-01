@@ -130,35 +130,40 @@ def add(source: str = typer.Argument(..., help="URL, PDF, or Markdown file to in
 
     from corpus.storage import is_ingested
 
+    # Resolve the canonical key and validate the extension before touching anything heavy
     if source.startswith(("http://", "https://")):
-        from corpus.ingestion import ingest_url
-
         ingest_key = source
         display_name = source
-        ingest_fn = lambda: ingest_url(source)
+        ext = None
     else:
         resolved = str(pathlib.Path(source).resolve())
         ingest_key = resolved
         display_name = pathlib.Path(resolved).name
         ext = pathlib.Path(resolved).suffix.lower()
-
-        if ext == ".pdf":
-            from corpus.ingestion import ingest_pdf
-
-            ingest_fn = lambda: ingest_pdf(resolved)
-        elif ext == ".md":
-            from corpus.ingestion import ingest_md
-
-            ingest_fn = lambda: ingest_md(resolved)
-        else:
+        if ext not in (".pdf", ".md"):
             console.print(
                 f"[red]error:[/red] unsupported file type {ext!r}  (supported: .pdf, .md)"
             )
             raise typer.Exit(1)
 
+    # Fast-path: SQLite check only — no ML stack loaded yet.
     if is_ingested(ingest_key):
         console.print(f"[dim]already ingested[/dim]  {ingest_key}")
         return
+
+    # Heavy imports deferred until we know we actually need to ingest.
+    if ext is None:
+        from corpus.ingestion import ingest_url
+
+        ingest_fn = lambda: ingest_url(source)
+    elif ext == ".pdf":
+        from corpus.ingestion import ingest_pdf
+
+        ingest_fn = lambda: ingest_pdf(resolved)
+    else:
+        from corpus.ingestion import ingest_md
+
+        ingest_fn = lambda: ingest_md(resolved)
 
     with Live(
         Spinner("dots", text=f"  [dim]ingesting {display_name}[/dim]"),

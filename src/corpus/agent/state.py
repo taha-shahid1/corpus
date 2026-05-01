@@ -15,6 +15,7 @@ class AgentState(TypedDict, total=False):
     route_type: str  # "rag" | "direct"
     sub_questions: list[str]
     docs: list[Document]
+    top_rerank_score: float
     loop_count: int
     answer: str
     messages: Annotated[list[BaseMessage], add_messages]

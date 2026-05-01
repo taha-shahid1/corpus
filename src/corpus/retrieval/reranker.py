@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import threading
+
 from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
 
 from corpus.config import RERANKER_DEVICE, RERANKER_MODEL, RERANKER_TOP_K
 
 _model: CrossEncoder | None = None
+_model_lock = threading.Lock()
 
 
 def _detect_device() -> str:
@@ -21,8 +24,10 @@ def _detect_device() -> str:
 def _get_model() -> CrossEncoder:
     global _model
     if _model is None:
-        device = RERANKER_DEVICE or _detect_device()
-        _model = CrossEncoder(RERANKER_MODEL, device=device)
+        with _model_lock:
+            if _model is None:
+                device = RERANKER_DEVICE or _detect_device()
+                _model = CrossEncoder(RERANKER_MODEL, device=device)
     return _model
 
 
@@ -31,7 +36,11 @@ def warmup() -> None:
     _get_model()
 
 
-def rerank(query: str, docs: list[Document], top_k: int = RERANKER_TOP_K) -> list[Document]:
+def rerank(
+    query: str, docs: list[Document], top_k: int = RERANKER_TOP_K
+) -> tuple[list[Document], float]:
+    """Return the top-k reranked docs and the score of the highest-ranked doc."""
     scores = _get_model().predict([(query, doc.page_content) for doc in docs])
     ranked = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
-    return [doc for _, doc in ranked[:top_k]]
+    top_score: float = float(ranked[0][0]) if ranked else float("-inf")
+    return [doc for _, doc in ranked[:top_k]], top_score

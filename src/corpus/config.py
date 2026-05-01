@@ -19,6 +19,9 @@ RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 # Override device with CORPUS_RERANKER_DEVICE; None triggers runtime auto-detection.
 RERANKER_DEVICE: str | None = os.getenv("CORPUS_RERANKER_DEVICE")
 RERANKER_TOP_K = 5
+# Reranker scores below this threshold skip the rewrite loop and go straight to generate.
+# bge-reranker-v2-m3 outputs raw logits; 0.0 is a reasonable "probably irrelevant" boundary.
+RERANKER_MIN_SCORE: float = float(os.getenv("CORPUS_RERANKER_MIN_SCORE", "0.0"))
 
 AGENT_MAX_LOOPS = 2
 HISTORY_MAX_TURNS = 5

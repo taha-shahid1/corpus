@@ -21,7 +21,7 @@ from corpus.ingestion.pipeline import (
     rebuild_fts_index,
     remove_source_embeddings,
 )
-from corpus.storage import get_file_hash, is_ingested
+from corpus.storage import get_file_hash
 
 logger = logging.getLogger(__name__)
 
@@ -40,27 +40,32 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def _ingest_file(path: Path, *, rebuild_index: bool = True) -> None:
-    """Ingest or re-ingest a single file, skipping if the content is unchanged."""
+def _ingest_file(path: Path, *, rebuild_index: bool = True) -> bool:
+    """Ingest or re-ingest a single file, skipping if the content is unchanged.
+
+    Returns True if the file was actually ingested, False if it was skipped.
+    """
     ext = path.suffix.lower()
     if ext not in _INGEST_FN:
-        return
+        return False
 
     source = str(path)
     try:
         current_hash = _sha256(path)
     except OSError:
-        return  # File disappeared between event and processing
+        return False  # File disappeared between event and processing
 
-    if is_ingested(source):
-        if get_file_hash(source) == current_hash:
+    stored_hash = get_file_hash(source)
+    if stored_hash is not None:
+        if stored_hash == current_hash:
             logger.debug("Unchanged, skipping: %s", path.name)
-            return
+            return False
         logger.info("Content changed, re-indexing: %s", path.name)
         remove_source_embeddings(source)
 
     logger.info("Ingesting: %s", path.name)
     _INGEST_FN[ext](source, force=True, file_hash=current_hash, rebuild_index=rebuild_index)
+    return True
 
 
 class _EventHandler(FileSystemEventHandler):
@@ -152,8 +157,8 @@ class FolderWatcher:
         for future in as_completed(futures):
             p = futures[future]
             try:
-                future.result()
-                any_ingested = True
+                if future.result():
+                    any_ingested = True
             except Exception as exc:
                 logger.error("Failed to ingest %s: %s", p.name, exc)
 

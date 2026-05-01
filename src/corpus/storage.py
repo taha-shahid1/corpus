@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -8,21 +9,25 @@ import sqlite_utils
 from corpus.config import DB_PATH
 
 _TABLE = "ingested_sources"
+_db_local = threading.local()
 
 
 def _db() -> sqlite_utils.Database:
-    Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
-    db = sqlite_utils.Database(DB_PATH)
-    if _TABLE not in db.table_names():
-        db[_TABLE].create(
-            {"source": str, "doc_count": int, "ingested_at": str, "file_hash": str},
-            pk="source",
-        )
-    else:
-        # Migrate: add file_hash column if it doesn't exist yet
-        if "file_hash" not in db[_TABLE].columns_dict:
-            db[_TABLE].add_column("file_hash", str)
-    return db
+    """Return a per-thread cached DB connection, running DDL only on first access."""
+    if not hasattr(_db_local, "conn"):
+        Path(DB_PATH).parent.mkdir(parents=True, exist_ok=True)
+        db = sqlite_utils.Database(DB_PATH)
+        if _TABLE not in db.table_names():
+            db[_TABLE].create(
+                {"source": str, "doc_count": int, "ingested_at": str, "file_hash": str},
+                pk="source",
+            )
+        else:
+            # Migrate: add file_hash column if it doesn't exist yet
+            if "file_hash" not in db[_TABLE].columns_dict:
+                db[_TABLE].add_column("file_hash", str)
+        _db_local.conn = db
+    return _db_local.conn
 
 
 def is_ingested(source: str) -> bool:

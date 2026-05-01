@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Annotated, Literal
 
 from langchain_core.documents import Document
@@ -10,10 +11,12 @@ from pydantic import BaseModel, Field
 
 from corpus.agent.llm import LLMProvider
 from corpus.agent.state import AgentState
-from corpus.config import AGENT_MAX_LOOPS, HISTORY_MAX_TURNS
+from corpus.config import AGENT_MAX_LOOPS, HISTORY_MAX_TURNS, RERANKER_MIN_SCORE
 from corpus.retrieval.reranker import rerank
 
 logger = logging.getLogger(__name__)
+
+_RETRIEVE_POOL = ThreadPoolExecutor(max_workers=3, thread_name_prefix="corpus-retrieve")
 
 
 def _format_source(doc) -> str:
@@ -116,23 +119,25 @@ def retrieve_node(retriever: Runnable[str, list[Document]]):
         seen: set[str] = set()
         all_docs: list[Document] = []
 
-        for sq in sub_questions:
-            for doc in retriever.invoke(sq):
+        futures = {_RETRIEVE_POOL.submit(retriever.invoke, sq): sq for sq in sub_questions}
+        for future in as_completed(futures):
+            for doc in future.result():
                 key = doc.page_content.strip()
                 if key not in seen:
                     seen.add(key)
                     all_docs.append(doc)
 
         if not all_docs:
-            return {"docs": []}
+            return {"docs": [], "top_rerank_score": float("-inf")}
 
-        ranked = rerank(query, all_docs)
+        ranked, top_score = rerank(query, all_docs)
         logger.debug(
-            "RETRIEVE: %d unique docs -> top %d after rerank",
+            "RETRIEVE: %d unique docs -> top %d after rerank (top_score=%.3f)",
             len(all_docs),
             len(ranked),
+            top_score,
         )
-        return {"docs": ranked}
+        return {"docs": ranked, "top_rerank_score": top_score}
 
     return _run
 
@@ -148,9 +153,7 @@ def grade_node(llm: LLMProvider):
         if not docs:
             return {"docs": []}
 
-        numbered = "\n\n".join(
-            f"[{i}] {doc.page_content[:600]}" for i, doc in enumerate(docs)
-        )
+        numbered = "\n\n".join(f"[{i}] {doc.page_content}" for i, doc in enumerate(docs))
         result: GradeOutput = structured.invoke(
             [
                 HumanMessage(
@@ -252,8 +255,9 @@ def generate_node(llm: LLMProvider):
 def route_after_grade(state: AgentState) -> str:
     has_docs = bool(state.get("docs"))
     over_limit = state.get("loop_count", 0) >= AGENT_MAX_LOOPS
+    score_too_low = state.get("top_rerank_score", float("-inf")) < RERANKER_MIN_SCORE
 
-    if has_docs or over_limit:
+    if has_docs or over_limit or score_too_low:
         return "generate"
     return "rewrite"
 
