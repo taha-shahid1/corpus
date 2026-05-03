@@ -24,6 +24,8 @@ The first run downloads embedding and reranker weights from Hugging Face (hundre
 
 ## Install
 
+### From the repo (development)
+
 From the repo root:
 
 ```bash
@@ -32,6 +34,19 @@ uv sync
 ```
 
 The package exposes a `corpus` command.
+
+### As a CLI with uv (from a wheel)
+
+Build a wheel into `dist/`, then install it as an isolated tool so `corpus` is on your PATH:
+
+```bash
+uv build
+uv tool install ./dist/corpus-0.1.0-py3-none-any.whl
+```
+
+After a version bump in `pyproject.toml`, the wheel filename changes—adjust the path or use a glob such as `./dist/corpus-*-py3-none-any.whl`.
+
+To upgrade, rebuild the wheel and run `uv tool install` again with the new file (uv replaces the existing tool install).
 
 ## Usage
 
