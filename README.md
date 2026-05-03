@@ -4,7 +4,7 @@ A CLI for turning PDFs, Markdown, and web pages into something you can actually 
 
 <div align="center">
 
-![Corpus: adding a document and asking the REPL a question](demo.mp4)
+https://github.com/user-attachments/assets/b58e3ffd-758b-4a1b-b386-e77e0083ffc3
 
 </div>
 
