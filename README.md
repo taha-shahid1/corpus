@@ -2,9 +2,11 @@
 
 A CLI for turning PDFs, Markdown, and web pages into something you can actually query. Everything stays on disk under your home directory—vectors in LanceDB, parent chunks in a local docstore, and a SQLite ledger of what you’ve ingested.
 
-<p align="center">
-  <video src="demo.mp4" controls muted playsinline width="720" aria-label="Corpus: adding a document and asking the REPL a question"></video>
-</p>
+<div align="center">
+
+![Corpus: adding a document and asking the REPL a question](demo.mp4)
+
+</div>
 
 ---
 
