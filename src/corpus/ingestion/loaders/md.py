@@ -39,7 +39,7 @@ class MarkdownLoader:
         combined = "\n\n".join(str(el) for el in elements if str(el).strip())
         if not combined.strip():
             raise ValueError(f"No readable text in {self.source!r}")
-        return [Document(page_content=combined, metadata={"source": self.source})]
+        return [Document(page_content=combined, metadata={"source": self.source, "page": None})]
 
     def _group_by_section(self, elements: list) -> list[Document]:
         groups: list[Document] = []
@@ -48,7 +48,8 @@ class MarkdownLoader:
         def flush() -> None:
             text = "\n\n".join(p for p in buffer if p.strip())
             if text:
-                groups.append(Document(page_content=text, metadata={"source": self.source}))
+                metadata = {"source": self.source, "page": None}
+                groups.append(Document(page_content=text, metadata=metadata))
             buffer.clear()
 
         for el in elements:

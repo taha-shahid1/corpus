@@ -25,7 +25,7 @@ class WebLoader:
             return groups
 
         combined = "\n\n".join(str(el) for el in elements if str(el).strip())
-        return [Document(page_content=combined, metadata={"source": self.url})]
+        return [Document(page_content=combined, metadata={"source": self.url, "page": None})]
 
     def _group_by_section(self, elements: list) -> list[Document]:
         groups: list[Document] = []
@@ -34,7 +34,8 @@ class WebLoader:
         def flush() -> None:
             text = "\n\n".join(p for p in buffer if p.strip())
             if text:
-                groups.append(Document(page_content=text, metadata={"source": self.url}))
+                metadata = {"source": self.url, "page": None}
+                groups.append(Document(page_content=text, metadata=metadata))
             buffer.clear()
 
         for el in elements:
