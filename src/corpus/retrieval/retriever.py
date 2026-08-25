@@ -113,6 +113,7 @@ def _build_retriever() -> ParentDocumentRetriever:
         connection=get_lancedb(),
         embedding=embeddings,
         table_name=LANCEDB_TABLE,
+        mode="append",
     )
 
     Path(DOCSTORE_PATH).mkdir(parents=True, exist_ok=True)
