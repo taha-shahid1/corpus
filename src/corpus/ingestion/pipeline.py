@@ -10,7 +10,7 @@ from corpus.ingestion.loaders.md import MarkdownLoader
 from corpus.ingestion.loaders.pdf import PDFLoader
 from corpus.ingestion.loaders.web import WebLoader
 from corpus.retrieval.retriever import get_lancedb, get_retriever
-from corpus.storage import is_ingested, mark_ingested
+from corpus.store.ingestion import is_ingested, mark_ingested
 
 logger = logging.getLogger(__name__)
 

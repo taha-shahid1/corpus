@@ -22,7 +22,7 @@ from corpus.ingestion.pipeline import (
     rebuild_fts_index,
     remove_source_embeddings,
 )
-from corpus.storage import get_file_hash
+from corpus.store.ingestion import get_file_hash
 
 logger = logging.getLogger(__name__)
 

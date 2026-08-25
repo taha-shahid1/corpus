@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextvars
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Annotated, Literal
@@ -119,7 +120,10 @@ def retrieve_node(retriever: Runnable[str, list[Document]]):
         seen: set[str] = set()
         all_docs: list[Document] = []
 
-        futures = {_RETRIEVE_POOL.submit(retriever.invoke, sq): sq for sq in sub_questions}
+        futures = {
+            _RETRIEVE_POOL.submit(contextvars.copy_context().run, retriever.invoke, sq): sq
+            for sq in sub_questions
+        }
         for future in as_completed(futures):
             for doc in future.result():
                 key = doc.page_content.strip()

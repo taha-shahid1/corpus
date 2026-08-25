@@ -62,6 +62,9 @@ _LOGO = """\
 app = typer.Typer(add_completion=False, help="Corpus — personal knowledge base.")
 console = Console()
 
+trace_app = typer.Typer(add_completion=False, help="Inspect agent traces.")
+app.add_typer(trace_app, name="trace")
+
 _PROMPT_STYLE = PTStyle.from_dict({"prompt": "bold"})
 
 _NODE_LABELS: dict[str, str] = {
@@ -132,7 +135,7 @@ def add(source: str = typer.Argument(..., help="URL, PDF, or Markdown file to in
     """Ingest a URL or local file (PDF, Markdown) into the knowledge base."""
     import pathlib
 
-    from corpus.storage import is_ingested
+    from corpus.store.ingestion import is_ingested
 
     # Resolve the canonical key and validate the extension before touching anything heavy
     if source.startswith(("http://", "https://")):
@@ -219,7 +222,7 @@ def add(source: str = typer.Argument(..., help="URL, PDF, or Markdown file to in
 @app.command()
 def status() -> None:
     """Show all ingested sources."""
-    from corpus.storage import get_status
+    from corpus.store.ingestion import get_status
 
     rows = get_status()
     if not rows:
@@ -236,6 +239,113 @@ def status() -> None:
 
     console.print()
     console.print(table)
+    console.print()
+
+
+def _resolve_trace_id(prefix: str) -> str | None:
+    from corpus.store.traces import get_trace, list_traces
+
+    if get_trace(prefix):
+        return prefix
+    matches = [t["trace_id"] for t in list_traces(limit=500) if t["trace_id"].startswith(prefix)]
+    return matches[0] if len(matches) == 1 else None
+
+
+@trace_app.command("list")
+def trace_list_cmd(
+    limit: int = typer.Option(20, "--limit", "-n", help="Number of recent traces to show."),
+) -> None:
+    """Show recent agent traces."""
+    from corpus.store.traces import list_traces
+
+    rows = list_traces(limit)
+    if not rows:
+        console.print("[dim]no traces yet[/dim]")
+        return
+
+    table = Table(show_header=True, header_style="dim", box=None, padding=(0, 2, 0, 0))
+    table.add_column("id")
+    table.add_column("query")
+    table.add_column("status")
+    table.add_column("started")
+
+    for row in rows:
+        status_style = "green" if row["status"] == "ok" else "red"
+        query = row["query"]
+        query_display = query if len(query) <= 60 else query[:60] + "…"
+        table.add_row(
+            row["trace_id"][:8],
+            query_display,
+            f"[{status_style}]{row['status']}[/{status_style}]",
+            row["started_at"],
+        )
+
+    console.print()
+    console.print(table)
+    console.print()
+
+
+@trace_app.command("show")
+def show_trace_cmd(
+    trace_id: str = typer.Argument(..., help="Trace id, or a unique prefix of one."),
+) -> None:
+    """Show a trace as a tree of nested spans (nodes and LLM calls)."""
+    import json
+
+    from corpus.store.traces import get_spans, get_trace
+
+    resolved = _resolve_trace_id(trace_id)
+    if resolved is None:
+        console.print(f"[red]error:[/red] no trace found matching {trace_id!r}")
+        raise typer.Exit(1)
+
+    trace = get_trace(resolved)
+    spans = get_spans(resolved)
+
+    console.print()
+    header = Text()
+    header.append(f"  {trace['query']}  ", style="bold")
+    status_style = "green" if trace["status"] == "ok" else "red"
+    header.append(f"[{trace['status']}]", style=status_style)
+    console.print(header)
+    console.print(Text(f"  {trace['started_at']}", style="dim"))
+    console.print()
+
+    if not spans:
+        console.print("[dim]  no spans recorded[/dim]\n")
+        return
+
+    children: dict[str | None, list[dict]] = {}
+    for span in spans:
+        children.setdefault(span["parent_span_id"], []).append(span)
+
+    def _render(parent_id: str | None, depth: int) -> None:
+        for span in children.get(parent_id, []):
+            row = Text()
+            row.append("  " + "  " * depth, style="dim")
+            icon = "λ " if span["kind"] == "llm" else "▸ "
+            row.append(icon, style="dim green" if span["kind"] == "llm" else "dim cyan")
+            row.append(f"{span['name']:<20}", style="dim" if span["kind"] == "llm" else "")
+            duration = span.get("duration_ms")
+            if duration is not None:
+                row.append(f"{duration:>7.0f}ms", style="dim")
+            if span["kind"] == "llm" and span.get("metadata"):
+                try:
+                    usage = json.loads(span["metadata"]).get("usage")
+                except (json.JSONDecodeError, AttributeError):
+                    usage = None
+                if usage:
+                    in_tok = usage.get("input_tokens") or usage.get("prompt_tokens")
+                    out_tok = usage.get("output_tokens") or usage.get("completion_tokens")
+                    if in_tok is not None and out_tok is not None:
+                        row.append(f"   in:{in_tok} out:{out_tok}", style="dim")
+            if span.get("error"):
+                row.append("   error: ", style="red")
+                row.append(span["error"], style="red")
+            console.print(row)
+            _render(span["span_id"], depth + 1)
+
+    _render(None, 0)
     console.print()
 
 
@@ -361,6 +471,7 @@ def repl(ctx: typer.Context) -> None:
         return
 
     import concurrent.futures
+    import uuid
 
     _suppress_hf_logging()
 
@@ -369,6 +480,7 @@ def repl(ctx: typer.Context) -> None:
     from prompt_toolkit.history import InMemoryHistory
 
     from corpus.agent.graph import build_graph
+    from corpus.agent.tracing import SQLiteTraceHandler, new_trace_id
     from corpus.config import HISTORY_MAX_TURNS
     from corpus.retrieval.reranker import warmup as warmup_reranker
 
@@ -406,6 +518,9 @@ def repl(ctx: typer.Context) -> None:
         retrieve_count = 0
         t0 = time.perf_counter()
 
+        trace_id = new_trace_id()
+        tracer = SQLiteTraceHandler(trace_id, query)
+
         try:
             with Live(
                 _build_query_display(steps_done, active_node, answer_chunks, False),
@@ -416,6 +531,11 @@ def repl(ctx: typer.Context) -> None:
                 for mode, data in graph.stream(
                     {"query": query, "loop_count": 0, "messages": history},
                     stream_mode=["messages", "updates"],
+                    config={
+                        "callbacks": [tracer],
+                        "run_id": uuid.UUID(trace_id),
+                        "metadata": {"trace_id": trace_id},
+                    },
                 ):
                     if mode == "updates":
                         node_name = next(iter(data))
@@ -485,8 +605,11 @@ def repl(ctx: typer.Context) -> None:
                 live.update(_build_query_display(steps_done, None, answer_chunks, False))
 
         except Exception as exc:
+            tracer.finish("error")
             console.print(f"[red]error:[/red] {exc}\n")
             continue
+        else:
+            tracer.finish("ok")
 
         elapsed = time.perf_counter() - t0
 
