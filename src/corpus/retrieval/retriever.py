@@ -22,6 +22,7 @@ from corpus.config import (
     LANCEDB_URI,
     PARENT_CHUNK_OVERLAP,
     PARENT_CHUNK_SIZE,
+    RETRIEVAL_CANDIDATE_K,
 )
 
 logger = logging.getLogger(__name__)
@@ -127,6 +128,7 @@ def _build_retriever() -> ParentDocumentRetriever:
             chunk_size=PARENT_CHUNK_SIZE,
             chunk_overlap=PARENT_CHUNK_OVERLAP,
         ),
+        search_kwargs={"k": RETRIEVAL_CANDIDATE_K},
     )
 
 

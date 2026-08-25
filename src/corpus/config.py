@@ -15,6 +15,9 @@ PARENT_CHUNK_OVERLAP = 200
 CHILD_CHUNK_SIZE = 400
 EMBEDDING_BATCH_SIZE = 32
 
+# Candidates pulled from hybrid search per sub-question before re-ranking
+RETRIEVAL_CANDIDATE_K = 20
+
 RERANKER_MODEL = "BAAI/bge-reranker-v2-m3"
 # Override device with CORPUS_RERANKER_DEVICE; None triggers runtime auto-detection.
 RERANKER_DEVICE: str | None = os.getenv("CORPUS_RERANKER_DEVICE")
