@@ -65,6 +65,9 @@ console = Console()
 trace_app = typer.Typer(add_completion=False, help="Inspect agent traces.")
 app.add_typer(trace_app, name="trace")
 
+eval_app = typer.Typer(add_completion=False, help="Run and inspect the golden-set eval suite.")
+app.add_typer(eval_app, name="eval")
+
 _PROMPT_STYLE = PTStyle.from_dict({"prompt": "bold"})
 
 _NODE_LABELS: dict[str, str] = {
@@ -346,6 +349,184 @@ def show_trace_cmd(
             _render(span["span_id"], depth + 1)
 
     _render(None, 0)
+    console.print()
+
+
+def _resolve_run_id(prefix: str) -> str | None:
+    from corpus.store.eval import get_run, list_runs
+
+    if get_run(prefix):
+        return prefix
+    matches = [r["run_id"] for r in list_runs(limit=500) if r["run_id"].startswith(prefix)]
+    return matches[0] if len(matches) == 1 else None
+
+
+def _run_calibration(result) -> None:
+    from rich.prompt import Confirm
+
+    judged = [cr for cr in result.cases if cr.verdict is not None]
+    if not judged:
+        console.print("[dim]no LLM-judged cases to calibrate[/dim]\n")
+        return
+
+    console.print("[dim]calibrating judge against your own labels…[/dim]\n")
+    agreements = 0
+    for cr in judged:
+        console.print(f"[bold]{cr.case.id}[/bold]  {cr.case.query}")
+        if cr.case.expected_keyphrases:
+            console.print(f"  expected: {', '.join(cr.case.expected_keyphrases)}")
+        console.print(f"  answer: {cr.answer[:300]}")
+        # Label blind, before revealing the judge's verdict — seeing it first anchors
+        # the human toward agreeing, which defeats the point of an independent check.
+        your_label = Confirm.ask("  is this answer correct?")
+        agree = your_label == cr.verdict.correct
+        agreements += agree
+        verdict_style = "green" if cr.verdict.correct else "red"
+        agree_style = "green" if agree else "red"
+        console.print(
+            f"  judge said: [{verdict_style}]{cr.verdict.correct}[/{verdict_style}]"
+            f"  — {cr.verdict.reasoning}   "
+            f"[{agree_style}]{'match' if agree else 'MISMATCH'}[/{agree_style}]"
+        )
+        console.print()
+
+    rate = agreements / len(judged)
+    rate_style = "green" if rate >= 0.85 else "red"
+    console.print(
+        f"[{rate_style}]judge agreement: {agreements}/{len(judged)} ({rate:.0%})[/{rate_style}]"
+    )
+    if rate < 0.85:
+        console.print(
+            "[yellow]warning: agreement below 85% — the judge prompt needs work "
+            "before these scores can be trusted[/yellow]"
+        )
+    console.print()
+
+
+@eval_app.command("run")
+def eval_run_cmd(
+    golden: str = typer.Option(
+        "eval/golden.json", "--golden", help="Path to the golden dataset."
+    ),
+    calibrate: bool = typer.Option(
+        False, "--calibrate", help="Interactively check judge verdicts against your own labels."
+    ),
+) -> None:
+    """Run the golden-set eval suite against the live agent graph."""
+    from corpus.eval.runner import run_eval
+
+    console.print()
+    with Live(
+        Spinner("dots", text="  [dim]running eval suite…[/dim]"), console=console, transient=True
+    ):
+        result = run_eval(golden)
+
+    table = Table(show_header=True, header_style="dim", box=None, padding=(0, 2, 0, 0))
+    table.add_column("case")
+    table.add_column("category")
+    table.add_column("result")
+    table.add_column("trace")
+
+    for cr in result.cases:
+        status_style = "green" if cr.passed else "red"
+        status = "pass" if cr.passed else "fail"
+        table.add_row(
+            cr.case.id,
+            cr.case.category,
+            f"[{status_style}]{status}[/{status_style}]",
+            cr.trace_id[:8],
+        )
+
+    console.print(table)
+    console.print()
+    rate_style = "green" if result.pass_rate >= 0.8 else "red"
+    console.print(
+        f"  [{rate_style}]{result.passed}/{result.total} passed "
+        f"({result.pass_rate:.0%})[/{rate_style}]  ·  run {result.run_id[:8]}"
+    )
+    console.print()
+
+    if calibrate:
+        _run_calibration(result)
+
+
+@eval_app.command("history")
+def eval_history_cmd(
+    limit: int = typer.Option(20, "--limit", "-n", help="Number of recent runs to show."),
+) -> None:
+    """Show recent eval run history (pass-rate trend)."""
+    from corpus.store.eval import list_runs
+
+    rows = list_runs(limit)
+    if not rows:
+        console.print("[dim]no eval runs yet[/dim]")
+        return
+
+    table = Table(show_header=True, header_style="dim", box=None, padding=(0, 2, 0, 0))
+    table.add_column("run")
+    table.add_column("commit")
+    table.add_column("pass rate")
+    table.add_column("started")
+
+    for row in rows:
+        rate = row["pass_rate"] or 0.0
+        rate_style = "green" if rate >= 0.8 else "red"
+        table.add_row(
+            row["run_id"][:8],
+            row["git_sha"] or "-",
+            f"[{rate_style}]{row['passed']}/{row['total']} ({rate:.0%})[/{rate_style}]",
+            row["started_at"],
+        )
+
+    console.print()
+    console.print(table)
+    console.print()
+
+
+@eval_app.command("show")
+def eval_show_cmd(
+    run_id: str = typer.Argument(..., help="Eval run id, or a unique prefix of one."),
+) -> None:
+    """Show the case-by-case breakdown of one eval run."""
+    from corpus.store.eval import get_cases, get_run
+
+    resolved = _resolve_run_id(run_id)
+    if resolved is None:
+        console.print(f"[red]error:[/red] no eval run found matching {run_id!r}")
+        raise typer.Exit(1)
+
+    run = get_run(resolved)
+    cases = get_cases(resolved)
+
+    console.print()
+    rate_style = "green" if run["pass_rate"] >= 0.8 else "red"
+    console.print(
+        f"  [{rate_style}]{run['passed']}/{run['total']} passed "
+        f"({run['pass_rate']:.0%})[/{rate_style}]"
+        f"  ·  commit {run['git_sha'] or '-'}  ·  {run['started_at']}"
+    )
+    console.print()
+
+    table = Table(show_header=True, header_style="dim", box=None, padding=(0, 2, 0, 0))
+    table.add_column("case")
+    table.add_column("category")
+    table.add_column("retrieval")
+    table.add_column("judge")
+    table.add_column("result")
+    table.add_column("trace")
+
+    for c in cases:
+        status_style = "green" if c["passed"] == "true" else "red"
+        table.add_row(
+            c["case_id"],
+            c["category"],
+            c["retrieval_hit"],
+            c["judge_correct"],
+            f"[{status_style}]{c['passed']}[/{status_style}]",
+            c["trace_id"][:8],
+        )
+
+    console.print(table)
     console.print()
 
 

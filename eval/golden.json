@@ -1,0 +1,154 @@
+[
+  {
+    "id": "attn-001",
+    "query": "What is the attention mechanism in transformers?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/1706.03762"],
+    "expected_keyphrases": ["scaled dot-product attention", "multi-head attention", "query", "key", "value"],
+    "notes": "core concept from the Attention Is All You Need paper"
+  },
+  {
+    "id": "attn-002",
+    "query": "What is multi-head attention?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/1706.03762"],
+    "expected_keyphrases": ["multiple attention heads run in parallel", "different representation subspaces", "linear projections"],
+    "notes": ""
+  },
+  {
+    "id": "attn-003",
+    "query": "Why did the Transformer architecture remove recurrence and convolutions?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/1706.03762"],
+    "expected_keyphrases": ["more parallelizable", "constant number of sequential operations", "relate distant positions"],
+    "notes": ""
+  },
+  {
+    "id": "attn-004",
+    "query": "What is positional encoding used for in the Transformer, and how is it computed?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/1706.03762"],
+    "expected_keyphrases": ["inject information about token position", "sine and cosine functions", "no recurrence to convey order"],
+    "notes": ""
+  },
+  {
+    "id": "attn-005",
+    "query": "What is scaled dot-product attention and why is it scaled?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/1706.03762"],
+    "expected_keyphrases": ["dot products of query and key", "scaled by square root of the key dimension", "softmax", "prevents extremely small gradients"],
+    "notes": ""
+  },
+  {
+    "id": "attn-006",
+    "query": "How does the decoder in the Transformer prevent attending to future tokens, and where is this masking applied?",
+    "category": "multi_hop",
+    "expected_sources": ["https://arxiv.org/html/1706.03762"],
+    "expected_keyphrases": ["masking", "decoder self-attention sub-layer", "prevents leftward information flow", "preserves auto-regressive property"],
+    "notes": "requires connecting the masking mechanism to the specific decoder sub-layer it's applied in"
+  },
+  {
+    "id": "attn-007",
+    "query": "What are the three distinct ways multi-head attention is used within the Transformer model?",
+    "category": "multi_hop",
+    "expected_sources": ["https://arxiv.org/html/1706.03762"],
+    "expected_keyphrases": ["encoder-decoder attention", "encoder self-attention", "decoder self-attention (masked)"],
+    "notes": "answer must cover all three uses, not just one"
+  },
+  {
+    "id": "rag-001",
+    "query": "What is Agentic RAG?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/2501.09136v4"],
+    "expected_keyphrases": ["autonomous control", "dynamically decide when to retrieve", "iterative response refinement", "beyond static linear RAG pipelines"],
+    "notes": ""
+  },
+  {
+    "id": "rag-002",
+    "query": "What frameworks does the survey mention for building multi-agent systems?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/2501.09136v4"],
+    "expected_keyphrases": ["CrewAI", "AutoGen or AG2", "OpenAI Swarm"],
+    "notes": ""
+  },
+  {
+    "id": "rag-003",
+    "query": "How does Qdrant enhance retrieval workflows for agents according to the survey?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/2501.09136v4"],
+    "expected_keyphrases": ["adaptive vector search", "switching between sparse and dense methods"],
+    "notes": ""
+  },
+  {
+    "id": "rag-004",
+    "query": "What limitations of traditional RAG pipelines motivate the move to agentic control mechanisms?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/2501.09136v4"],
+    "expected_keyphrases": ["static and linear pipelines", "limited complex multi-step reasoning", "limited iterative refinement"],
+    "notes": ""
+  },
+  {
+    "id": "rag-005",
+    "query": "What does CrewAI support according to the survey?",
+    "category": "factual",
+    "expected_sources": ["https://arxiv.org/html/2501.09136v4"],
+    "expected_keyphrases": ["hierarchical and sequential processes", "memory systems", "tool integrations"],
+    "notes": ""
+  },
+  {
+    "id": "rag-006",
+    "query": "Compare how CrewAI and AutoGen/AG2 approach multi-agent collaboration.",
+    "category": "multi_hop",
+    "expected_sources": ["https://arxiv.org/html/2501.09136v4"],
+    "expected_keyphrases": ["CrewAI hierarchical and sequential processes", "AG2/AutoGen code generation and tool execution", "both support multi-agent collaboration"],
+    "notes": "requires pulling facts about two distinct frameworks into one answer"
+  },
+  {
+    "id": "neg-001",
+    "query": "What is the capital of France?",
+    "category": "negative",
+    "expected_sources": [],
+    "expected_keyphrases": [],
+    "notes": "not covered by either ingested paper"
+  },
+  {
+    "id": "neg-002",
+    "query": "What's the current stock price of NVIDIA?",
+    "category": "negative",
+    "expected_sources": [],
+    "expected_keyphrases": [],
+    "notes": "not covered by either ingested paper, and not knowable from a static KB"
+  },
+  {
+    "id": "neg-003",
+    "query": "How do I train a diffusion model for image generation?",
+    "category": "negative",
+    "expected_sources": [],
+    "expected_keyphrases": [],
+    "notes": "neither ingested paper covers diffusion models"
+  },
+  {
+    "id": "conv-001",
+    "query": "hey there!",
+    "category": "conversational",
+    "expected_sources": [],
+    "expected_keyphrases": [],
+    "notes": "greeting, should bypass RAG entirely"
+  },
+  {
+    "id": "conv-002",
+    "query": "thanks, that was helpful",
+    "category": "conversational",
+    "expected_sources": [],
+    "expected_keyphrases": [],
+    "notes": "thank-you, should bypass RAG entirely"
+  },
+  {
+    "id": "conv-003",
+    "query": "what do you think about pineapple on pizza?",
+    "category": "conversational",
+    "expected_sources": [],
+    "expected_keyphrases": [],
+    "notes": "opinion request, should bypass RAG entirely"
+  }
+]
