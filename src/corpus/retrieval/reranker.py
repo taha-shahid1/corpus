@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 
+import torch
 from langchain_core.documents import Document
 from sentence_transformers import CrossEncoder
 
@@ -40,7 +41,10 @@ def rerank(
     query: str, docs: list[Document], top_k: int = RERANKER_TOP_K
 ) -> tuple[list[Document], float]:
     """Return the top-k reranked docs and the score of the highest-ranked doc."""
-    scores = _get_model().predict([(query, doc.page_content) for doc in docs])
+    scores = _get_model().predict(
+        [(query, doc.page_content) for doc in docs],
+        activation_fn=torch.nn.Identity(),
+    )
     ranked = sorted(zip(scores, docs), key=lambda x: x[0], reverse=True)
     top_score: float = float(ranked[0][0]) if ranked else float("-inf")
     return [doc for _, doc in ranked[:top_k]], top_score

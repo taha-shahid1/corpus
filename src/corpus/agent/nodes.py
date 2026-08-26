@@ -120,12 +120,17 @@ def retrieve_node(retriever: Runnable[str, list[Document]]):
         seen: set[str] = set()
         all_docs: list[Document] = []
 
-        futures = {
-            _RETRIEVE_POOL.submit(contextvars.copy_context().run, retriever.invoke, sq): sq
-            for sq in sub_questions
-        }
-        for future in as_completed(futures):
-            for doc in future.result():
+        if len(sub_questions) == 1:
+            results = [retriever.invoke(sub_questions[0])]
+        else:
+            futures = {
+                _RETRIEVE_POOL.submit(contextvars.copy_context().run, retriever.invoke, sq): sq
+                for sq in sub_questions
+            }
+            results = [future.result() for future in as_completed(futures)]
+
+        for docs in results:
+            for doc in docs:
                 key = doc.page_content.strip()
                 if key not in seen:
                     seen.add(key)

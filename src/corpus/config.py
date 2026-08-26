@@ -38,8 +38,8 @@ ANTHROPIC_STRONG_MODEL = os.getenv("CORPUS_ANTHROPIC_STRONG_MODEL", "claude-sonn
 GEMINI_FAST_MODEL = os.getenv("CORPUS_GEMINI_FAST_MODEL", "gemini-2.0-flash")
 GEMINI_STRONG_MODEL = os.getenv("CORPUS_GEMINI_STRONG_MODEL", "gemini-2.5-pro-preview-05-06")
 
-OLLAMA_FAST_MODEL = os.getenv("CORPUS_OLLAMA_FAST_MODEL", "llama3.2")
-OLLAMA_STRONG_MODEL = os.getenv("CORPUS_OLLAMA_STRONG_MODEL", "llama3.1:70b")
+OLLAMA_FAST_MODEL = os.getenv("CORPUS_OLLAMA_FAST_MODEL", "llama3.1:8b")
+OLLAMA_STRONG_MODEL = os.getenv("CORPUS_OLLAMA_STRONG_MODEL", "llama3.1:8b")
 OLLAMA_BASE_URL = os.getenv("CORPUS_OLLAMA_BASE_URL", "http://localhost:11434")
 
 DB_PATH = str(Path("~/.corpus/corpus.db").expanduser())
