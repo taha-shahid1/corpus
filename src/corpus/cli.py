@@ -671,150 +671,152 @@ def repl(ctx: typer.Context) -> None:
 
     _suppress_hf_logging()
 
-    from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage
+    from langchain_core.messages import AIMessageChunk
+    from langgraph.checkpoint.sqlite import SqliteSaver
     from prompt_toolkit import PromptSession
     from prompt_toolkit.history import InMemoryHistory
 
     from corpus.agent.graph import build_graph
     from corpus.agent.tracing import SQLiteTraceHandler, new_trace_id
-    from corpus.config import HISTORY_MAX_TURNS
+    from corpus.config import DB_PATH
     from corpus.retrieval.reranker import warmup as warmup_reranker
 
-    with Live(
-        Spinner("dots", text="  [dim]loading…[/dim]"),
-        console=console,
-        transient=True,
-    ):
-        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
-            graph_future = pool.submit(build_graph)
-            warmup_future = pool.submit(warmup_reranker)
-            graph = graph_future.result()
-            warmup_future.result()
+    with SqliteSaver.from_conn_string(DB_PATH) as checkpointer:
+        checkpointer.setup()
 
-    _print_splash()
+        with Live(
+            Spinner("dots", text="  [dim]loading…[/dim]"),
+            console=console,
+            transient=True,
+        ):
+            with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+                graph_future = pool.submit(build_graph, checkpointer=checkpointer)
+                warmup_future = pool.submit(warmup_reranker)
+                graph = graph_future.result()
+                warmup_future.result()
 
-    session: PromptSession = PromptSession(history=InMemoryHistory())
-    history: list = []  # list[BaseMessage], last HISTORY_MAX_TURNS turns
+        _print_splash()
 
-    while True:
-        try:
-            query = session.prompt("◆ ", style=_PROMPT_STYLE).strip()
-        except (KeyboardInterrupt, EOFError):
-            sys.exit(0)
+        session: PromptSession = PromptSession(history=InMemoryHistory())
+        thread_id = str(uuid.uuid4())
 
-        if not query:
-            continue
+        while True:
+            try:
+                query = session.prompt("◆ ", style=_PROMPT_STYLE).strip()
+            except (KeyboardInterrupt, EOFError):
+                sys.exit(0)
 
-        console.print()
+            if not query:
+                continue
 
-        steps_done: list[tuple[str, str]] = []
-        active_node: str | None = "route"
-        answer_chunks: list[str] = []
-        final_docs: list = []
-        retrieve_count = 0
-        t0 = time.perf_counter()
+            console.print()
 
-        trace_id = new_trace_id()
-        tracer = SQLiteTraceHandler(trace_id, query)
+            steps_done: list[tuple[str, str]] = []
+            active_node: str | None = "route"
+            answer_chunks: list[str] = []
+            final_docs: list = []
+            retrieve_count = 0
+            t0 = time.perf_counter()
 
-        try:
-            with Live(
-                _build_query_display(steps_done, active_node, answer_chunks, False),
-                console=console,
-                refresh_per_second=15,
-                vertical_overflow="visible",
-            ) as live:
-                for mode, data in graph.stream(
-                    {"query": query, "loop_count": 0, "messages": history},
-                    stream_mode=["messages", "updates"],
-                    config={
-                        "callbacks": [tracer],
-                        "run_id": uuid.UUID(trace_id),
-                        "metadata": {"trace_id": trace_id},
-                    },
-                ):
-                    if mode == "updates":
-                        node_name = next(iter(data))
-                        node_data = data[node_name]
+            trace_id = new_trace_id()
+            tracer = SQLiteTraceHandler(trace_id, query)
 
-                        if node_name == "retrieve":
-                            retrieve_count = len(node_data.get("docs", []))
-                        elif node_name == "grade":
-                            final_docs = node_data.get("docs", [])
-                        elif node_name in _STREAMING_NODES and not answer_chunks:
-                            # fallback: non-streaming model emits full answer in updates
-                            if ans := node_data.get("answer", ""):
-                                answer_chunks.append(ans)
+            try:
+                with Live(
+                    _build_query_display(steps_done, active_node, answer_chunks, False),
+                    console=console,
+                    refresh_per_second=15,
+                    vertical_overflow="visible",
+                ) as live:
+                    for mode, data in graph.stream(
+                        {"query": query, "loop_count": 0},
+                        stream_mode=["messages", "updates"],
+                        config={
+                            "callbacks": [tracer],
+                            "run_id": uuid.UUID(trace_id),
+                            "metadata": {"trace_id": trace_id},
+                            "configurable": {"thread_id": thread_id},
+                        },
+                    ):
+                        if mode == "updates":
+                            node_name = next(iter(data))
+                            node_data = data[node_name]
 
-                        detail = _node_detail(node_name, node_data, retrieve_count)
-                        steps_done.append((node_name, detail))
+                            if node_name == "retrieve":
+                                retrieve_count = len(node_data.get("docs", []))
+                            elif node_name == "grade":
+                                final_docs = node_data.get("docs", [])
+                            elif node_name in _STREAMING_NODES and not answer_chunks:
+                                # fallback: non-streaming model emits full answer in updates
+                                if ans := node_data.get("answer", ""):
+                                    answer_chunks.append(ans)
 
-                        # infer the next active node from the graph structure
-                        if node_name == "route":
-                            active_node = (
-                                "plan" if node_data.get("route_type") == "rag" else "respond"
+                            detail = _node_detail(node_name, node_data, retrieve_count)
+                            steps_done.append((node_name, detail))
+
+                            # infer the next active node from the graph structure
+                            if node_name == "route":
+                                active_node = (
+                                    "plan" if node_data.get("route_type") == "rag" else "respond"
+                                )
+                            elif node_name == "plan":
+                                active_node = "retrieve"
+                            elif node_name == "retrieve":
+                                active_node = "grade"
+                            elif node_name == "grade":
+                                # conditional edge — resolved by the next event
+                                active_node = None
+                            elif node_name == "rewrite":
+                                active_node = "plan"
+                            elif node_name in _STREAMING_NODES:
+                                active_node = None
+
+                        elif mode == "messages":
+                            chunk, meta = data
+                            # Only accumulate AIMessageChunk tokens from answer-producing nodes.
+                            # LangGraph also emits full HumanMessage/AIMessage objects when nodes
+                            # write to the messages state key — filtering them prevents the
+                            # duplicated-answer bug.
+                            if meta.get("langgraph_node") in _STREAMING_NODES and isinstance(
+                                chunk, AIMessageChunk
+                            ):
+                                if active_node not in _STREAMING_NODES:
+                                    active_node = meta["langgraph_node"]
+                                content = chunk.content
+                                if isinstance(content, str):
+                                    answer_chunks.append(content)
+                                elif isinstance(content, list):
+                                    for part in content:
+                                        if isinstance(part, str):
+                                            answer_chunks.append(part)
+                                        elif isinstance(part, dict) and isinstance(
+                                            part.get("text"), str
+                                        ):
+                                            answer_chunks.append(part["text"])
+
+                        live.update(
+                            _build_query_display(
+                                steps_done,
+                                active_node,
+                                answer_chunks,
+                                generating=(active_node in _STREAMING_NODES),
                             )
-                        elif node_name == "plan":
-                            active_node = "retrieve"
-                        elif node_name == "retrieve":
-                            active_node = "grade"
-                        elif node_name == "grade":
-                            # conditional edge — resolved by the next event
-                            active_node = None
-                        elif node_name == "rewrite":
-                            active_node = "plan"
-                        elif node_name in _STREAMING_NODES:
-                            active_node = None
-
-                    elif mode == "messages":
-                        chunk, meta = data
-                        # Only accumulate AIMessageChunk tokens from answer-producing nodes.
-                        # LangGraph also emits full HumanMessage/AIMessage objects when nodes
-                        # write to the messages state key — filtering them prevents the
-                        # duplicated-answer bug.
-                        if meta.get("langgraph_node") in _STREAMING_NODES and isinstance(
-                            chunk, AIMessageChunk
-                        ):
-                            if active_node not in _STREAMING_NODES:
-                                active_node = meta["langgraph_node"]
-                            content = chunk.content
-                            if isinstance(content, str):
-                                answer_chunks.append(content)
-                            elif isinstance(content, list):
-                                for part in content:
-                                    if isinstance(part, str):
-                                        answer_chunks.append(part)
-                                    elif isinstance(part, dict) and isinstance(
-                                        part.get("text"), str
-                                    ):
-                                        answer_chunks.append(part["text"])
-
-                    live.update(
-                        _build_query_display(
-                            steps_done,
-                            active_node,
-                            answer_chunks,
-                            generating=(active_node in _STREAMING_NODES),
                         )
-                    )
 
-                live.update(_build_query_display(steps_done, None, answer_chunks, False))
+                    live.update(_build_query_display(steps_done, None, answer_chunks, False))
 
-        except Exception as exc:
-            tracer.finish("error")
-            console.print(f"[red]error:[/red] {exc}\n")
-            continue
-        else:
-            tracer.finish("ok")
+            except Exception as exc:
+                tracer.finish("error")
+                console.print(f"[red]error:[/red] {exc}\n")
+                continue
+            else:
+                tracer.finish("ok")
 
-        elapsed = time.perf_counter() - t0
+            elapsed = time.perf_counter() - t0
 
-        if not answer_chunks:
-            console.print("[dim]no answer produced[/dim]\n")
-            continue
+            if not answer_chunks:
+                console.print("[dim]no answer produced[/dim]\n")
+                continue
 
-        history.extend([HumanMessage(content=query), AIMessage(content="".join(answer_chunks))])
-        history = history[-(HISTORY_MAX_TURNS * 2) :]
-
-        source_count = _render_sources(final_docs)
-        _render_timing(elapsed, source_count)
+            source_count = _render_sources(final_docs)
+            _render_timing(elapsed, source_count)

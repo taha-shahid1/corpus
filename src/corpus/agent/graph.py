@@ -4,6 +4,7 @@ import logging
 
 from langchain_core.documents import Document
 from langchain_core.runnables import Runnable
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 
@@ -28,6 +29,7 @@ logger = logging.getLogger(__name__)
 def build_graph(
     llm: LLMProvider | None = None,
     retriever: Runnable[str, list[Document]] | None = None,
+    checkpointer: BaseCheckpointSaver | None = None,
 ) -> CompiledStateGraph:
     """Assemble and compile the RAG agent graph."""
     if llm is None:
@@ -74,4 +76,4 @@ def build_graph(
         {"generate": "generate", "rewrite": "rewrite"},
     )
 
-    return graph.compile()
+    return graph.compile(checkpointer=checkpointer)

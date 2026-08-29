@@ -16,6 +16,26 @@ Ingestion walks each source through parsers (URLs via trafilatura, PDFs via PyMu
 
 The chat side is a LangGraph agent: it decides whether you’re asking for grounded facts from the corpus or just chatting, plans sub-questions for trickier prompts, retrieves and grades passages, and can rewrite the query once or twice if nothing looks relevant. Answers stream in the terminal with a thin trace of which graph nodes ran.
 
+## Agent architecture
+
+```mermaid
+flowchart TD
+    q(["query"]) --> route
+    route{"route:<br/>rag or direct?"}
+    route -->|direct| respond["respond"]
+    route -->|rag| plan["plan<br/>split into 1-3 sub-questions"]
+    plan --> retrieve["retrieve<br/>parallel search per sub-question + rerank"]
+    retrieve --> grade["grade<br/>LLM filters irrelevant passages"]
+    grade --> decide{"docs found, or loop_count >= 2,<br/>or rerank score too low?"}
+    decide -->|yes| generate["generate<br/>answer with inline citations"]
+    decide -->|no| rewrite["rewrite<br/>reformulate the query"]
+    rewrite --> plan
+    respond --> a(["answer"])
+    generate --> a
+```
+
+Every node and LLM call is captured as a span with timing and token counts, viewable with `corpus trace list` / `corpus trace show <id>`. 
+
 ## Requirements
 
 - **Python 3.13+**
