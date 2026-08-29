@@ -10,7 +10,7 @@ from corpus.ingestion.loaders.md import MarkdownLoader
 from corpus.ingestion.loaders.pdf import PDFLoader
 from corpus.ingestion.loaders.web import WebLoader
 from corpus.retrieval.retriever import get_lancedb, get_retriever
-from corpus.store.ingestion import is_ingested, mark_ingested
+from corpus.store.ingestion import delete_ingested, is_ingested, mark_ingested
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,8 @@ def remove_source(source: str) -> None:
             )
         else:
             logger.info("Removed embeddings for %s (no parent chunks found)", source)
+
+        delete_ingested(source)
     except Exception as e:
         logger.warning("Could not fully remove %s: %s", source, e)
 

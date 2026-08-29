@@ -139,7 +139,9 @@ def retrieve_node(retriever: Runnable[str, list[Document]]):
         if not all_docs:
             return {"docs": [], "top_rerank_score": float("-inf")}
 
-        ranked, top_score = rerank(query, all_docs)
+        scored = rerank(query, all_docs)
+        top_score = scored[0][1] if scored else float("-inf")
+        ranked = [doc for doc, _ in scored]
         logger.debug(
             "RETRIEVE: %d unique docs -> top %d after rerank (top_score=%.3f)",
             len(all_docs),

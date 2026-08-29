@@ -80,6 +80,28 @@ corpus watch ./research ./inbox
 
 New or modified `.md` / `.pdf` files are picked up after a short debounce. Use `-w` / `--workers` if you want more parallel ingest threads.
 
+## MCP server
+
+`corpus mcp` runs an MCP server over stdio, exposing the same knowledge base to any MCP-capable agent (Claude Code, Claude Desktop, etc.) instead of the built-in REPL. It has two tools:
+
+- **`search(query, k)`** — hybrid retrieval + cross-encoder rerank, returning passages with source, page, and relevance score.
+- **`add(source)`** — ingest a local PDF/Markdown file or a URL, with progress reported as it parses, embeds, and indexes.
+
+Point your MCP client at the repo:
+
+```json
+{
+  "mcpServers": {
+    "corpus": {
+      "command": "uv",
+      "args": ["run", "--directory", "/path/to/corpus", "corpus", "mcp"]
+    }
+  }
+}
+```
+
+No separate install step is needed — `uv run` syncs the environment on first launch. The server reads and writes the same `~/.corpus` store as the CLI, so anything ingested via `corpus add` is immediately searchable through MCP and vice versa.
+
 ## LLM providers
 
 Set `CORPUS_LLM_PROVIDER` to one of `anthropic`, `openai`, `gemini`, or `ollama`. If you leave it unset, the app picks the first provider it can authenticate: Anthropic (`ANTHROPIC_API_KEY`), Google (`GOOGLE_API_KEY`), OpenAI (`OPENAI_API_KEY`), then falls back to Ollama at `http://localhost:11434`.

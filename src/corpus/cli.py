@@ -579,6 +579,21 @@ def watch(
     console.print("\n[dim]stopped[/dim]")
 
 
+@app.command()
+def mcp() -> None:
+    """Run the MCP server (stdio) so other agents can search and add to the knowledge base."""
+    # stdio is the JSON-RPC channel for MCP, so all status output here must go to stderr.
+    stderr_console = Console(stderr=True)
+
+    from corpus.mcp import build_server, warmup
+
+    with stderr_console.status("[dim]loading models…[/dim]"):
+        warmup()
+
+    stderr_console.print("[dim]corpus mcp server ready (stdio)[/dim]")
+    build_server().run(transport="stdio")
+
+
 def _print_splash() -> None:
     """Render the corpus wordmark with a top-to-bottom violet gradient."""
     lines = _LOGO.split("\n")

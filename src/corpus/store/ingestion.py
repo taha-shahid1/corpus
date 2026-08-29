@@ -44,6 +44,13 @@ def get_file_hash(source: str) -> str | None:
         return None
 
 
+def delete_ingested(source: str) -> None:
+    try:
+        _db()[_TABLE].delete(source)
+    except sqlite_utils.db.NotFoundError:
+        pass
+
+
 def mark_ingested(source: str, doc_count: int, file_hash: str | None = None) -> None:
     _db()[_TABLE].insert(
         {
