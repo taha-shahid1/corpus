@@ -281,22 +281,23 @@ def route_node(llm: LLMProvider):
 
     def _run(state: AgentState) -> dict:
         query = state["query"]
+        past: list[BaseMessage] = state.get("messages", [])[-HISTORY_MAX_TURNS * 2 :]
         logger.debug("ROUTE: classifying query")
 
+        instructions = HumanMessage(
+            content=(
+                "Classify the following user query as either 'rag' or 'direct'.\n\n"
+                "rag — a factual or knowledge question that could be answered by "
+                "searching a personal knowledge base of papers, articles, or docs.\n"
+                "direct — conversational, a greeting, a thank-you, an opinion request, "
+                "a question about earlier turns in this conversation (e.g. recalling "
+                "something the user said), or anything clearly not a knowledge-base "
+                "lookup.\n\n"
+                "Output nothing except the JSON."
+            )
+        )
         result: RouteOutput = structured.invoke(
-            [
-                HumanMessage(
-                    content=(
-                        "Classify the following user query as either 'rag' or 'direct'.\n\n"
-                        "rag — a factual or knowledge question that could be answered by "
-                        "searching a personal knowledge base of papers, articles, or docs.\n"
-                        "direct — conversational, a greeting, a thank-you, an opinion request, "
-                        "or anything clearly not a knowledge lookup.\n\n"
-                        "Output nothing except the JSON.\n\n"
-                        f"Query: {query}"
-                    )
-                )
-            ]
+            [instructions, *past, HumanMessage(content=f"Query: {query}")]
         )
 
         logger.debug("ROUTE decision: %s", result.route)
